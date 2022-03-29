@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample
+  namespace: default
+  labels:
+    app: sample
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5000
+    name: http
+  selector:
+    app: sample
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample
+  template:
+    metadata:
+      labels:
+        app: sample
+        version: v1
+    spec:
+      containers:
+      - name: sample
+        image: claudioacquaviva/sampleapp
+        ports:
+        - containerPort: 5000
