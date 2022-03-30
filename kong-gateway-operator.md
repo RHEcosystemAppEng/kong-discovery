@@ -71,13 +71,13 @@ kubectl create -f -<<EOF
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
-  name: kong-offline-operator
+  name: kong-offline-operator-rhmp
   namespace: openshift-operators
 spec:
   channel: alpha
   installPlanApproval: Automatic
-  name: kong-offline-operator
-  source: certified-operators
+  name: kong-offline-operator-rhmp
+  source: redhat-marketplace
   sourceNamespace: openshift-marketplace
   startingCSV: kong.v0.10.0
 EOF
@@ -558,7 +558,7 @@ Delete the Kong instance, subscription, and CSV from the `openshift-operators` n
 kubectl delete kong/kong -n kong
 kubectl delete kong/kong-dp -n kong-dp
 
-kubectl delete subs -n openshift-operators kong-offline-operator
+kubectl delete subs -n openshift-operators kong-offline-operator-rhmp
 
 kubectl delete csv -n openshift-operators kong.v0.10.0  
 
