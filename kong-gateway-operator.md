@@ -795,6 +795,7 @@ Hello World, Kong: 2022-03-31 16:04:02.495356
 ## Clean up
 Delete the Kong instance, subscription, and CSV from the `openshift-operators` namespace:
 ```
+kubectl delete kongconsumer consumer1 -n default
 kubectl delete secret consumerapikey -n default
 kubectl delete kongplugin apikey
 kubectl annotate ingress sampleroute -n default konghq.com/plugins-
