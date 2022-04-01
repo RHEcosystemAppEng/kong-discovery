@@ -72,7 +72,7 @@ helm install kong kong/kong -n kong \
 --set postgresql.postgresqlUsername=kong \
 --set postgresql.postgresqlDatabase=kong \
 --set postgresql.postgresqlPassword=kong \
---set postgresql.securityContext.runAsUser=1000660000 \
+--set postgresql.securityContext.runAsUser=1000710000 \
 --set postgresql.securityContext.fsGroup= \
 --set enterprise.enabled=true \
 --set enterprise.license_secret=kong-enterprise-license \
@@ -109,18 +109,18 @@ oc expose service kong-kong-portalapi
 
 - Checking the Admin API
 ```
-http kong-kong-admin-kong.apps.kong-demo.51ty.p1.openshiftapps.com kong-admin-token:kong | jq -r .version
+http kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com kong-admin-token:kong | jq -r .version
 ```
 
 - Configuring Kong Manager Service
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"kong-kong-admin-kong.apps.kong-demo.51ty.p1.openshiftapps.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 
 - Configuring Kong Dev Portal
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": \"http://kong-kong-portalapi-kong.apps.kong-demo.51ty.p1.openshiftapps.com\" }]}]}}}}"
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_GUI_HOST\", \"value\": \"kong-kong-portal-kong.apps.kong-demo.51ty.p1.openshiftapps.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": \"http://kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_GUI_HOST\", \"value\": \"kong-kong-portal-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 - Data Plane
 
@@ -162,7 +162,7 @@ helm install kong-dp kong/kong -n kong-dp -f kong-dp.yaml
 ```
 - Checking the Data Plane from the Control Plane
 ```
-http kong-kong-admin-kong.apps.kong-demo.51ty.p1.openshiftapps.com/clustering/status kong-admin-token:kong
+http kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com/clustering/status kong-admin-token:kong
 ```
 - Expose the proxy
 ```
@@ -171,20 +171,20 @@ oc expose service kong-dp-kong-proxy
 
 - Checking the Proxy
 ```
-http kong-dp-kong-proxy-kong-dp.apps.kong-demo.51ty.p1.openshiftapps.com
+http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com
 ```
 
 - Defining a Service and a Route
 
 ```
-http kong-kong-admin-kong.apps.kong-demo.51ty.p1.openshiftapps.com/services name=sampleservice url='http://sample.default.svc.cluster.local:5000' kong-admin-token:kong
-http kong-kong-admin-kong.apps.kong-demo.51ty.p1.openshiftapps.com/services/sampleservice/routes name='httpbinroute' paths:='["/sample"]' kong-admin-token:kong
+http kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com/services name=sampleservice url='http://sample.default.svc.cluster.local:5000' kong-admin-token:kong
+http kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com/services/sampleservice/routes name='httpbinroute' paths:='["/sample"]' kong-admin-token:kong
 ```
 
 - Test the service and route
 ```
-http kong-dp-kong-proxy-kong-dp.apps.kong-demo.51ty.p1.openshiftapps.com/sample/hello
-while [ 1 ]; do curl kong-dp-kong-proxy-kong-dp.apps.kong-demo.51ty.p1.openshiftapps.com/sample/hello; echo; done
+http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sample/hello
+while [ 1 ]; do curl kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sample/hello; echo; done
 ```
 
 
@@ -230,11 +230,11 @@ EOF
 
 - Consume the ingress
 ```
-http kong-dp-kong-proxy-kong-dp.apps.kong-demo.51ty.p1.openshiftapps.com/route1/get
+http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/route1/get
 ```
 
 ```
-while [ 1 ]; do curl http://kong-dp-kong-proxy-kong-dp.apps.kong-demo.51ty.p1.openshiftapps.com/route1/get; echo; done
+while [ 1 ]; do curl http://kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/route1/get; echo; done
 ```
 
 - Scaling the deployment
@@ -302,7 +302,7 @@ kubectl annotate ingress sampleroute -n default konghq.com/plugins-
 
 - Test the plugins
 ```
-http kong-dp-kong-proxy-kong-dp.apps.kong-demo.51ty.p1.openshiftapps.com/sampleroute/hello
+http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sampleroute/hello
 ```
 
 - Create the API key plugin
@@ -331,7 +331,7 @@ kubectl patch ingress sampleroute -n default -p '{"metadata":{"annotations":{"ko
 
 - Test the plugin
 ```
-http kong-dp-kong-proxy-kong-dp.apps.kong-demo.51ty.p1.openshiftapps.com/sampleroute/hello
+http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sampleroute/hello
 ```
 
 - Provisioning the key
@@ -368,7 +368,7 @@ kubectl delete kongconsumer consumer1 -n default
 
 - Consumer the route with the API key
 ```
-http kong-dp-kong-proxy-kong-dp.apps.kong-demo.51ty.p1.openshiftapps.com/sampleroute/hello apikey:kong-secret
+http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sampleroute/hello apikey:kong-secret
 ```
 
 

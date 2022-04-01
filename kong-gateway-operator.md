@@ -4,6 +4,7 @@ The Kong Operator is a helm operator. The values defined in the operator instanc
 We will Deploy the Kong Gateway using the Kong Operator and deploy the Control Plane and Data Plane in two distinct namespaces.
 
 **TOC**  
+- [Register a cluster to Red Hat Market place](#register-a-cluster-to-Red-Hat-Market-place)
 - [Deploy Sample App](#deploy-sample-app)
 - [Install the Operator](#install-operator-subscription)
 - [Create Control Plane Namespace](#create-control-plane-namespace)
@@ -25,6 +26,40 @@ We will Deploy the Kong Gateway using the Kong Operator and deploy the Control P
 - [Define Rate Limiting Policy](#defined-rate-limiting-policy)
 - [Define an API Key Policy](#define-api-key-policy)
 - [Clean Up](#clean-up)
+
+## Register a cluster to Red Hat Market place
+- Register a cluster to Red Hat Market place
+
+```
+RedHat Marketplace -> Workspace -> Cluster -> Add Cluster
+oc create namespace openshift-redhat-marketplace
+```
+
+-  Create Red Hat Marketplace Subscription
+```
+oc apply -f "https://marketplace.redhat.com/provisioning/v1/rhm-operator/rhm-operator-subscription?approvalStrategy=Automatic"
+```
+- Monitor the CSV
+```
+oc get csv -n openshift-redhat-marketplace -w # The phase should be succeeded.
+```
+- Monitor the subs
+```
+oc get subs -n openshift-redhat-marketplace
+```
+- Create Red Hat Marketplace Kubernetes Secret
+```
+oc create secret generic redhat-marketplace-pull-secret -n openshift-redhat-marketplace --from-literal=PULL_SECRET=<<PULL-SECRET>
+```
+
+- Add the Red Hat Marketplace pull secret to the global pull secret on the cluster
+```
+curl -sL https://marketplace.redhat.com/provisioning/v1/scripts/update-global-pull-secret | bash -s <<PULL_SECRET>>
+```
+- Validate the registration of cluster from 
+```
+Red Hat Marketplace -> Workspace -> Clusters
+```
 
 ## Deploy Sample App
 We start by deploying a sample app that we will use with Kong Gateway.
@@ -85,6 +120,10 @@ spec:
   sourceNamespace: openshift-marketplace
   startingCSV: kong.v0.10.0
 EOF
+```
+- Monitor the install
+```
+oc get csv -n openshift-operators -w #Pghase needs to be Succeded
 ```
 
 ## Create Control Plane Namespace
@@ -236,14 +275,13 @@ spec:
     postgresqlUsername: kong
     securityContext:
       fsGroup: ""
-      runAsUser: 1000660000
+      runAsUser: 1000720000
   proxy:
     enabled: true
   secretVolumes:
   - kong-cluster-cert
 EOF
 ```
-
 
 ## Expose Control Plane Services
 ```
@@ -271,50 +309,50 @@ output:
 ## Configure Kong Manager Service
 Patch the kong-kong deployment with the value of your `kong-kong-admin` route:
 ```
-kubectl get routes -n kong kong-kong-admin -ojsonpath='{.status.ingress[0].host}'
+kubectl get routes -n kong kong-kong-admin -ojsonpath='{.status.ingress[0].host}{"\n"}'
 ```
 output:
 ```
-kong-kong-admin-kong.apps.kong-cwylie.fsi-env2.rhecoeng.com
+kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com
 ```
 Patch the deployment
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"kong-kong-admin-kong.apps.kong-cwylie.kni.syseng.devcluster.openshift.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 
 ## Configure Kong Dev Portal
 Get the route of the dev portalapi and patch the Kong deployment
 ```
-kubectl get routes -n kong  kong-kong-portalapi -ojsonpath='{.status.ingress[0].host}'
+kubectl get routes -n kong  kong-kong-portalapi -ojsonpath='{.status.ingress[0].host}{"\n"}'
 ```
 output:
 ```
-kong-kong-portalapi-kong.apps.kong-cwylie.kni.syseng.devcluster.openshift.com
+kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com
 ```
 
 Patch the deployment
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": \"kong-kong-portalapi-kong.apps.kong-cwylie.kni.syseng.devcluster.openshift.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": \"http://kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 
 Get the route of the dev portal and patch the Kong deployment
 ```
-kubectl get routes -n kong  kong-kong-portal -ojsonpath='{.status.ingress[0].host}'
+kubectl get routes -n kong  kong-kong-portal -ojsonpath='{.status.ingress[0].host}{"\n"}'
 ```
 output:
 ```
-kong-kong-portal-kong.apps.kong-cwylie.kni.syseng.devcluster.openshift.com
+kong-kong-portal-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com
 ```
 
 patch the deployment
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_GUI_HOST\", \"value\": \"kong-kong-portal-kong.apps.kong-cwylie.kni.syseng.devcluster.openshift.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_GUI_HOST\", \"value\": \"kong-kong-portal-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 
 ## Visit Kong Manager
 Open in your browser
 ```
-kubectl get routes -n kong kong-kong-manager -ojsonpath='{.status.ingress[0].host}'
+kubectl get routes -n kong kong-kong-manager -ojsonpath='{.status.ingress[0].host}{"\n"}'
 ```
 ## Create Data Plane Namespace
 This is namespace is where your Data Plane components

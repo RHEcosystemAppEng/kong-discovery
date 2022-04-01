@@ -18,6 +18,7 @@ oc port-forward svc/kong-mesh-control-plane -n kong-mesh-system 5681:5681
 - Apply scc  of non-root to ```kuma-metrics```
 ```
 oc adm policy add-scc-to-group nonroot system:serviceaccounts:kong-mesh-metrics
+oc adm policy add-scc-to-group node-exporter system:serviceaccounts:kuma-metrics
 ```
 
 - Apply scc of anyuid to kuma-demo
