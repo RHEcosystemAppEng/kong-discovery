@@ -1,10 +1,12 @@
 # Kong Gateway using the Operator (CP/DP with Ingress Controller)  
-The Kong Operator is a helm operator. The values defined in the operator instance are turned into helm values. All possible fields for the operator can be found [here](https://github.com/Kong/kong-operator/blob/main/deploy/crds/charts_v1alpha1_kong_cr.yaml) and are the same as the helm values for this operator which can be found [here](https://github.com/Kong/kong-operator/blob/main/helm-charts/kong/values.yaml).  
+The Kong Operator is a helm operator. The values defined in the operator instance are turned into helm values. All possible fields for the operator can be found 
+[here](https://github.com/Kong/kong-operator/blob/main/deploy/crds/charts_v1alpha1_kong_cr.yaml) and are the same as the helm values for this operator which can be found 
+[here](https://github.com/Kong/kong-operator/blob/main/helm-charts/kong/values.yaml).  
 
 We will Deploy the Kong Gateway using the Kong Operator and deploy the Control Plane and Data Plane in two distinct namespaces.
 
 **TOC**  
-- [Register a cluster to Red Hat Market place](#register-a-cluster-to-Red-Hat-Market-place)
+- [Register a cluster to Red Hat Market place](#register-a-cluster-to-red-hat-market-place)
 - [Deploy Sample App](#deploy-sample-app)
 - [Install the Operator](#install-operator-subscription)
 - [Create Control Plane Namespace](#create-control-plane-namespace)
@@ -20,11 +22,10 @@ We will Deploy the Kong Gateway using the Kong Operator and deploy the Control P
 - [Deploy kong operator for Data Plane](#deploy-kong-operator-for-data-plane)
 - [Expose Data Plane Services](#expose-data-plane-services)
 - [Checking the Data Plane from the Control Plane](#checking-the-data-plane-from-the-control-plane)\
-- [Deploy Sample App](#deploy-sample-app)
 - [Defining a Service and a Route](#defining-a-service-and-a-route)
-- [Create a Service and Route using CRDs](#create-a-service-and-route-using-crds)
-- [Define Rate Limiting Policy](#defined-rate-limiting-policy)
-- [Define an API Key Policy](#define-api-key-policy)
+- [Define a Service and a Route using CRDs](#define-a-service-and-a-route-using-crds)
+- [Define Rate Limiting Policy](#define-rate-limiting-policy)
+- [Define an API Key Policy](#define-an-api-key-policy)
 - [Clean Up](#clean-up)
 
 ## Register a cluster to Red Hat Market place
@@ -103,7 +104,20 @@ spec:
         - containerPort: 5000
 EOF
 ```
+output
+```
+service/sample created
+deployment.apps/sample created
+```
 
+wait for app to be ready
+```
+kubectl wait --for=condition=ready pod -l app=sample --timeout=120s
+```
+output
+```
+pod/sample-76db6bb547-klztz condition met
+```
 ## Install Operator Subscription
 ```
 kubectl create -f -<<EOF
@@ -174,7 +188,9 @@ Avoid this error:
   "msg": "Reconciler error",
   "name": "kong",
   "namespace": "kong",
-  "error": "failed to install release: template: kong/templates/ingress-class.yaml:2:34: executing \"kong/templates/ingress-class.yaml\" at <lookup \"networking.k8s.io/v1\" \"IngressClass\" \"\" \"kong\">: error calling lookup: ingressclasses.networking.k8s.io \"kong\" is forbidden: User \"system:serviceaccount:openshift-operators:kong-operator\" cannot get resource \"ingressclasses\" in API group \"networking.k8s.io\" at the cluster scope",
+  "error": "failed to install release: template: kong/templates/ingress-class.yaml:2:34: executing \"kong/templates/ingress-class.yaml\" at <lookup \"networking.k8s.io/v1\" \"IngressClass\" \"\" \"kong\">: error 
+calling lookup: ingressclasses.networking.k8s.io \"kong\" is forbidden: User \"system:serviceaccount:openshift-operators:kong-operator\" cannot get resource \"ingressclasses\" in API group \"networking.k8s.io\" at 
+the cluster scope",
   "stacktrace": "sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).Start.func2.2\n\t/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.10.0/pkg/internal/controller/controller.go:227"
 }
 ```
@@ -317,7 +333,8 @@ kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com
 ```
 Patch the deployment
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": 
+\"kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 
 ## Configure Kong Dev Portal
@@ -332,7 +349,8 @@ kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com
 
 Patch the deployment
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": \"http://kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": 
+\"http://kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 
 Get the route of the dev portal and patch the Kong deployment
@@ -346,7 +364,8 @@ kong-kong-portal-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com
 
 patch the deployment
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_GUI_HOST\", \"value\": \"kong-kong-portal-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
+kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_GUI_HOST\", \"value\": 
+\"kong-kong-portal-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 
 ## Visit Kong Manager
