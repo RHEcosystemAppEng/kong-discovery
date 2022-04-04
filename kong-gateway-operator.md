@@ -9,7 +9,7 @@ We will Deploy the Kong Gateway using the Kong Operator and deploy the Control P
 - [Register a cluster to Red Hat Market place](#register-a-cluster-to-red-hat-market-place)
 - [Deploy Sample App](#deploy-sample-app)
 - [Install the Operator](#install-operator-subscription)
-- [Patch the Operator Deployment](#install-operator-subscription)
+- [Patch the Operator Deployment](#patch-operator-deployment)
 - [Create Control Plane Namespace](#create-control-plane-namespace)
 - [Create Control Plane Secrets](#create-control-plane-secrets)
 - [Deploy kong operator for Control Plane](#deploy-kong-operator-for-control-plane)
