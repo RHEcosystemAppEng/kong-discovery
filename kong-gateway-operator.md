@@ -9,6 +9,7 @@ We will Deploy the Kong Gateway using the Kong Operator and deploy the Control P
 - [Register a cluster to Red Hat Market place](#register-a-cluster-to-red-hat-market-place)
 - [Deploy Sample App](#deploy-sample-app)
 - [Install the Operator](#install-operator-subscription)
+- [Patch the Operator Deployment](#install-operator-subscription)
 - [Create Control Plane Namespace](#create-control-plane-namespace)
 - [Create Control Plane Secrets](#create-control-plane-secrets)
 - [Deploy kong operator for Control Plane](#deploy-kong-operator-for-control-plane)
@@ -140,6 +141,19 @@ EOF
 oc get csv -n openshift-operators -w #Pghase needs to be Succeded
 ```
 
+## Patch Operator Deployment
+Patch kong-operator deployment update `RELATED_IMAGE_KONG`.
+```
+kubectl patch deploy/kong-operator -n openshift-operators  -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"kong-operator\",\"env\": [{ \"name\" : \"RELATED_IMAGE_KONG\", \"value\": 
+\"kong/kong-gateway:2.8.0.0-alpine\" }]}]}}}}"
+```
+Patch kong-operator deployment, update `RELATED_IMAGE_KONG_CONTROLLER`
+```
+kubectl patch deploy/kong-operator -n openshift-operators  -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"kong-operator\",\"env\": [{ \"name\" : \"RELATED_IMAGE_KONG_CONTROLLER\", \"value\": 
+\"kong/kubernetes-ingress-controller:2.2.1\" }]}]}}}}"
+```
+
+
 ## Create Control Plane Namespace
 We will store our control plane components on the kong namespace
 ```
@@ -255,6 +269,7 @@ spec:
     portal_gui_protocol: http
     role: control_plane
   image:
+    unifiedRepoTag: kong/kong-gateway:2.8.0.0-alpine
     repository: kong/kong-gateway
     tag: 2.8.0.0-alpine
   ingressController:
@@ -270,6 +285,7 @@ spec:
     image:
       repository: kong/kubernetes-ingress-controller
       tag: 2.2.1
+      unifiedRepoTag: kong/kubernetes-ingress-controller:2.2.1
     installCRDs: false
   manager:
     enabled: true
@@ -291,7 +307,7 @@ spec:
     postgresqlUsername: kong
     securityContext:
       fsGroup: ""
-      runAsUser: 1000720000
+      runAsUser: 1000670000
   proxy:
     enabled: true
   secretVolumes:
@@ -315,11 +331,11 @@ kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=app -n kon
 
 Check the version
 ```
-http $(kubectl get route kong-kong-admin -n kong -ojsonpath='{.status.ingress[0].host}') | jq -r .version
+http $(kubectl get route kong-kong-admin -n kong -ojsonpath='{.status.ingress[0].host}') kong-admin-token:kong | jq -r .version
 ```
 output:
 ```
-2.4.0
+2.8.0.0-enterprise-edition
 ```
 
 ## Configure Kong Manager Service
@@ -350,7 +366,7 @@ kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com
 Patch the deployment
 ```
 kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": 
-\"http://kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
+\"kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
 ```
 
 Get the route of the dev portal and patch the Kong deployment
@@ -422,8 +438,11 @@ spec:
   image:
     repository: kong/kong-gateway
     tag: 2.8.0.0-alpine
+    unifiedRepoTag: kong/kong-gateway:2.8.0.0-alpine
   ingressController:
     enabled: false
+    image:
+      unifiedRepoTag: kong/kubernetes-ingress-controller:2.2.1
   manager:
     enabled: false
   portal:
@@ -436,6 +455,10 @@ spec:
   secretVolumes:
   - kong-cluster-cert
 EOF
+```
+output
+```
+kong.charts.konghq.com/kong-dp created
 ```
 
 ## Expose Data Plane Services
@@ -454,18 +477,19 @@ access-control-allow-origin: *
 cache-control: private
 content-length: 176
 content-type: application/json; charset=utf-8
-date: Thu, 31 Mar 2022 15:40:50 GMT
+date: Mon, 04 Apr 2022 22:34:00 GMT
 deprecation: true
-server: kong/2.4.0
-set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=40227c2ec427147f4f6f73d9025a0b09; path=/; HttpOnly
-x-kong-admin-latency: 1
+server: kong/2.8.0.0-enterprise-edition
+set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=58532545a25e6ff24dadc281c58c45bd; path=/; HttpOnly
+x-kong-admin-latency: 53
+x-kong-admin-request-id: p3iUf2AibJMME3seQgjfty9MpIk8Gp8a
 
 {
-    "c4846b12-3cf9-48ca-8821-a61ad535f5d3": {
-        "config_hash": "00000000000000000000000000000000",
-        "hostname": "kong-dp-kong-86b8b669f4-mkrr6",
-        "ip": "10.128.2.21",
-        "last_seen": 1648741236
+    "b2ddab51-ef6c-43ec-aaa8-7375969c9fbc": {
+        "config_hash": "8da25e9d3cb10ff3a634af9fc0401e06",
+        "hostname": "kong-dp-kong-7b6d5dddbb-thdm8",
+        "ip": "10.131.1.51",
+        "last_seen": 1649111623
     }
 }
 ```
@@ -481,9 +505,9 @@ HTTP/1.1 404 Not Found
 cache-control: private
 content-length: 48
 content-type: application/json; charset=utf-8
-date: Thu, 31 Mar 2022 15:41:09 GMT
-server: kong/2.4.0
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=603cd394d7a6aa0e90a25d5376b51682; path=/; HttpOnly
+date: Mon, 04 Apr 2022 22:34:24 GMT
+server: kong/2.8.0.0-enterprise-edition
+set-cookie: 221e03621b6ead39ca50bfd3582fedc0=1f6fbc4cf35e7510cbea2620cf2a9c78; path=/; HttpOnly
 x-kong-response-latency: 0
 
 {
@@ -494,26 +518,28 @@ x-kong-response-latency: 0
 ## Defining a Service and a Route
 From your laptop define a service and a route sending requests to the Control Plane
 ```
-http $(kubectl get routes -n kong kong-kong-admin -ojsonpath='{.status.ingress[0].host}')/services name=sampleservice url='http://sample.default.svc.cluster.local:5000'
+http $(kubectl get routes -n kong kong-kong-admin -ojsonpath='{.status.ingress[0].host}')/services name=sampleservice url='http://sample.default.svc.cluster.local:5000' kong-admin-token:kong
 ```
 output:
 ```
 HTTP/1.1 201 Created
 access-control-allow-origin: *
-content-length: 382
+content-length: 397
 content-type: application/json; charset=utf-8
-date: Thu, 31 Mar 2022 15:41:25 GMT
-server: kong/2.4.0
-set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=40227c2ec427147f4f6f73d9025a0b09; path=/; HttpOnly
-x-kong-admin-latency: 7
+date: Mon, 04 Apr 2022 22:35:01 GMT
+server: kong/2.8.0.0-enterprise-edition
+set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=58532545a25e6ff24dadc281c58c45bd; path=/; HttpOnly
+x-kong-admin-latency: 81
+x-kong-admin-request-id: sFOL9fY79YEVNpKFb2Y64odlHvzvbRby
 
 {
     "ca_certificates": null,
     "client_certificate": null,
     "connect_timeout": 60000,
-    "created_at": 1648741285,
+    "created_at": 1649111701,
+    "enabled": true,
     "host": "sample.default.svc.cluster.local",
-    "id": "98c280a1-17ca-49b9-b8d7-7589542464d0",
+    "id": "d94c6700-fcdd-4c17-bff5-4f81867b7abb",
     "name": "sampleservice",
     "path": null,
     "port": 5000,
@@ -523,14 +549,14 @@ x-kong-admin-latency: 7
     "tags": null,
     "tls_verify": null,
     "tls_verify_depth": null,
-    "updated_at": 1648741285,
+    "updated_at": 1649111701,
     "write_timeout": 60000
 }
 ```
 
 Create a route
 ```
-http $(kubectl get routes -n kong kong-kong-admin -ojsonpath='{.status.ingress[0].host}')/services/sampleservice/routes name='httpbinroute' paths:='["/sample"]'
+http $(kubectl get routes -n kong kong-kong-admin -ojsonpath='{.status.ingress[0].host}')/services/sampleservice/routes name='httpbinroute' paths:='["/sample"]' kong-admin-token:kong
 ```
 output
 ```
@@ -538,18 +564,19 @@ HTTP/1.1 201 Created
 access-control-allow-origin: *
 content-length: 486
 content-type: application/json; charset=utf-8
-date: Thu, 31 Mar 2022 15:41:44 GMT
-server: kong/2.4.0
-set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=40227c2ec427147f4f6f73d9025a0b09; path=/; HttpOnly
-x-kong-admin-latency: 12
+date: Mon, 04 Apr 2022 22:35:38 GMT
+server: kong/2.8.0.0-enterprise-edition
+set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=58532545a25e6ff24dadc281c58c45bd; path=/; HttpOnly
+x-kong-admin-latency: 80
+x-kong-admin-request-id: QhidOnJhNT7C3q58TBmXos0OQJgQ0epW
 
 {
-    "created_at": 1648741304,
+    "created_at": 1649111738,
     "destinations": null,
     "headers": null,
     "hosts": null,
     "https_redirect_status_code": 426,
-    "id": "3d1f59a0-5ca5-462f-8fbc-723089920673",
+    "id": "bb1706b4-81e0-472e-a4aa-9ac04d1a7cef",
     "methods": null,
     "name": "httpbinroute",
     "path_handling": "v0",
@@ -565,13 +592,13 @@ x-kong-admin-latency: 12
     "request_buffering": true,
     "response_buffering": true,
     "service": {
-        "id": "98c280a1-17ca-49b9-b8d7-7589542464d0"
+        "id": "d94c6700-fcdd-4c17-bff5-4f81867b7abb"
     },
     "snis": null,
     "sources": null,
     "strip_path": true,
     "tags": null,
-    "updated_at": 1648741304
+    "updated_at": 1649111738
 }
 ```
 
@@ -586,14 +613,14 @@ HTTP/1.1 200 OK
 cache-control: private
 content-length: 45
 content-type: text/html; charset=utf-8
-date: Wed, 30 Mar 2022 23:03:18 GMT
+date: Mon, 04 Apr 2022 22:36:42 GMT
 server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=f5bb7287e8b6563624170fb6bd601bd6; path=/; HttpOnly
-via: kong/2.4.0
-x-kong-proxy-latency: 359
-x-kong-upstream-latency: 4
+set-cookie: 221e03621b6ead39ca50bfd3582fedc0=1f6fbc4cf35e7510cbea2620cf2a9c78; path=/; HttpOnly
+via: kong/2.8.0.0-enterprise-edition
+x-kong-proxy-latency: 8
+x-kong-upstream-latency: 7
 
-Hello World, Kong: 2022-03-30 23:03:18.589683
+Hello World, Kong: 2022-04-04 22:36:42.025975
 ```
 
 Curl Consecutively (if you want)
@@ -606,73 +633,31 @@ HTTP/1.1 200 OK
 cache-control: private
 content-length: 45
 content-type: text/html; charset=utf-8
-date: Wed, 30 Mar 2022 23:10:54 GMT
+date: Mon, 04 Apr 2022 22:37:03 GMT
 server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=72ee36ab6aa688d39e144b267679f458; path=/; HttpOnly
-via: kong/2.4.0
-x-kong-proxy-latency: 6
-x-kong-upstream-latency: 1
+set-cookie: 221e03621b6ead39ca50bfd3582fedc0=1f6fbc4cf35e7510cbea2620cf2a9c78; path=/; HttpOnly
+via: kong/2.8.0.0-enterprise-edition
+x-kong-proxy-latency: 1
+x-kong-upstream-latency: 4
 
-Hello World, Kong: 2022-03-30 23:10:54.294184
+Hello World, Kong: 2022-04-04 22:37:03.944241
 
 
 HTTP/1.1 200 OK
 cache-control: private
 content-length: 45
 content-type: text/html; charset=utf-8
-date: Wed, 30 Mar 2022 23:10:54 GMT
+date: Mon, 04 Apr 2022 22:37:05 GMT
 server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=72ee36ab6aa688d39e144b267679f458; path=/; HttpOnly
-via: kong/2.4.0
+set-cookie: 221e03621b6ead39ca50bfd3582fedc0=1f6fbc4cf35e7510cbea2620cf2a9c78; path=/; HttpOnly
+via: kong/2.8.0.0-enterprise-edition
 x-kong-proxy-latency: 1
-x-kong-upstream-latency: 1
+x-kong-upstream-latency: 267
 
-Hello World, Kong: 2022-03-30 23:10:54.804185
-
-
-HTTP/1.1 200 OK
-cache-control: private
-content-length: 45
-content-type: text/html; charset=utf-8
-date: Wed, 30 Mar 2022 23:10:55 GMT
-server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=72ee36ab6aa688d39e144b267679f458; path=/; HttpOnly
-via: kong/2.4.0
-x-kong-proxy-latency: 0
-x-kong-upstream-latency: 2
-
-Hello World, Kong: 2022-03-30 23:10:55.294731
+Hello World, Kong: 2022-04-04 22:37:05.004412
 
 
-^CHTTP/1.1 200 OK
-cache-control: private
-content-length: 45
-content-type: text/html; charset=utf-8
-date: Wed, 30 Mar 2022 23:10:56 GMT
-server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=72ee36ab6aa688d39e144b267679f458; path=/; HttpOnly
-via: kong/2.4.0
-x-kong-proxy-latency: 1
-x-kong-upstream-latency: 2
-
-Hello World, Kong: 2022-03-30 23:10:56.047257
-
-
-HTTP/1.1 200 OK
-cache-control: private
-content-length: 45
-content-type: text/html; charset=utf-8
-date: Wed, 30 Mar 2022 23:10:56 GMT
-server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=72ee36ab6aa688d39e144b267679f458; path=/; HttpOnly
-via: kong/2.4.0
-x-kong-proxy-latency: 1
-x-kong-upstream-latency: 2
-
-Hello World, Kong: 2022-03-30 23:10:56.544776
-
-
-^C%  
+^C%     
 ```
 **Visit Kong Manager Again**   
 Open in your browser
@@ -728,12 +713,19 @@ config:
 plugin: rate-limiting
 EOF
 ```
+output
+```
+kongplugin.configuration.konghq.com/rl-by-minute created
+```
 
 Add plugin to the route
 ```
 kubectl patch ingress sampleroute -n default -p '{"metadata":{"annotations":{"konghq.com/plugins":"rl-by-minute"}}}'
 ```
-
+output
+```
+ingress.networking.k8s.io/sampleroute patched
+```
 Test the plugin
 ```
 for z in $(seq 10); do http $(kubectl get routes -n kong-dp kong-dp-kong-proxy -ojsonpath='{.status.ingress[0].host}')/sampleroute/hello; done
@@ -744,13 +736,13 @@ output
 HTTP/1.1 429 Too Many Requests
 content-length: 41
 content-type: application/json; charset=utf-8
-date: Thu, 31 Mar 2022 15:53:41 GMT
+date: Mon, 04 Apr 2022 22:39:10 GMT
 ratelimit-limit: 3
 ratelimit-remaining: 0
-ratelimit-reset: 19
-retry-after: 19
-server: kong/2.4.0
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=603cd394d7a6aa0e90a25d5376b51682; path=/; HttpOnly
+ratelimit-reset: 50
+retry-after: 50
+server: kong/2.8.0.0-enterprise-edition
+set-cookie: 221e03621b6ead39ca50bfd3582fedc0=1f6fbc4cf35e7510cbea2620cf2a9c78; path=/; HttpOnly
 x-kong-response-latency: 1
 x-ratelimit-limit-minute: 3
 x-ratelimit-remaining-minute: 0
@@ -774,10 +766,18 @@ metadata:
 plugin: key-auth
 EOF
 ```
+output
+```
+kongplugin.configuration.konghq.com/apikey created
+```
 
 Apply the plugin to the route:
 ```
 kubectl patch ingress sampleroute -n default -p '{"metadata":{"annotations":{"konghq.com/plugins":"apikey, rl-by-minute"}}}'
+```
+output
+```
+ingress.networking.k8s.io/sampleroute patched
 ```
 
 Test the plugin 
@@ -790,9 +790,9 @@ output
 HTTP/1.1 401 Unauthorized
 content-length: 45
 content-type: application/json; charset=utf-8
-date: Thu, 31 Mar 2022 16:02:21 GMT
-server: kong/2.4.0
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=603cd394d7a6aa0e90a25d5376b51682; path=/; HttpOnly
+date: Mon, 04 Apr 2022 22:40:29 GMT
+server: kong/2.8.0.0-enterprise-edition
+set-cookie: 221e03621b6ead39ca50bfd3582fedc0=1f6fbc4cf35e7510cbea2620cf2a9c78; path=/; HttpOnly
 www-authenticate: Key realm="kong"
 x-kong-response-latency: 0
 
@@ -805,6 +805,10 @@ x-kong-response-latency: 0
 Provision a key
 ```
 kubectl create secret generic consumerapikey -n default --from-literal=kongCredType=key-auth --from-literal=key=kong-secret
+```
+output
+```
+secret/consumerapikey created
 ```
 
 Create a consumer with the key
@@ -822,6 +826,10 @@ credentials:
 - consumerapikey
 EOF
 ```
+output
+```
+kongconsumer.configuration.konghq.com/consumer1 created
+```
 
 Consume Route with Key and Test
 ```
@@ -834,19 +842,19 @@ HTTP/1.1 200 OK
 cache-control: private
 content-length: 45
 content-type: text/html; charset=utf-8
-date: Thu, 31 Mar 2022 16:04:02 GMT
+date: Mon, 04 Apr 2022 22:41:27 GMT
 ratelimit-limit: 3
 ratelimit-remaining: 2
-ratelimit-reset: 58
+ratelimit-reset: 33
 server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 221e03621b6ead39ca50bfd3582fedc0=603cd394d7a6aa0e90a25d5376b51682; path=/; HttpOnly
-via: kong/2.4.0
+set-cookie: 221e03621b6ead39ca50bfd3582fedc0=1f6fbc4cf35e7510cbea2620cf2a9c78; path=/; HttpOnly
+via: kong/2.8.0.0-enterprise-edition
 x-kong-proxy-latency: 1
-x-kong-upstream-latency: 2
+x-kong-upstream-latency: 3
 x-ratelimit-limit-minute: 3
 x-ratelimit-remaining-minute: 2
 
-Hello World, Kong: 2022-03-31 16:04:02.495356
+Hello World, Kong: 2022-04-04 22:41:27.048848
 ```
 
 ## Clean up
