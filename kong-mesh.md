@@ -45,46 +45,44 @@ oc adm policy add-scc-to-group anyuid system:serviceaccounts:kuma-demo
 
 - Clone the demo repo
 ```
-git clone https://github.com/kumahq/kuma-counter-demo.git
+git clone https://github.com/kumahq/kuma-demo.git
 ```
 
 - Install resources on kuma-demo ns
 ```
-kubectl apply -f demo.yaml
+kubectl apply -f kubernetes/kuma-demo-aio.yaml
 ```
-Patch if you want to use the internal image registry
-```
-kubectl patch deployment/redis -n kuma-demo -p "{\"spec\": {\"template\":{\"spec\": {\"containers\": [{\"name\": \"redis\", \"image\": \"$KONG_REGISTRY/redis:latest\"}]}}}}"
-kubectl patch deployment/demo-app -n kuma-demo -p "{\"spec\": {\"template\":{\"spec\": {\"containers\": [{\"name\": \"demo-app\", \"image\": \"$KONG_REGISTRY/kuma-demo\"}]}}}}"
-```
+
 - Expose the service
 
 ```{bash}
-oc expose svc/demo-app -n kuma-demo
+oc expose svc/frontend -n kuma-demo
 ```
 
 - Validate the deployment
 
 ```{bash}
-$ http -h `oc get route demo-app -n kuma-demo -ojson | jq -r .spec.host` 
+$ http -h `oc get route frontend -n kuma-demo -ojson | jq -r .spec.host` 
 HTTP/1.1 200 OK
 ```
 
-- Check side car injection has been performed
+- Check sidecar injection has been performed
 ```
-$ kubectl get namespace kuma-demo -ojson | jq '.metadata.labels["kuma.io/sidecar-injection"]'
-"enabled"
-
 $ kubectl get po -ojson | jq '.items[] | .spec.containers[] | .name '
-"demo-app"
+"kuma-fe"
 "kuma-sidecar"
-"redis"
+"kuma-be"
+"kuma-sidecar"
+"master"
+"kuma-sidecar"
+"master"
 "kuma-sidecar"
 ```
 
 - Enable MTls and Traffic permissions
 ```
 kubectl apply -f mesh/mtls.yaml
+kubectl apply -f mesh/demo/traffic-permissions.yaml
 ```
 
 ## Traffic metrics
