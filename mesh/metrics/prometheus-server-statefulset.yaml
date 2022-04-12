@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: prometheus
+    component: server
+    manager: kube-controller-manager
+  name: prometheus-server
+  namespace: kong-mesh-metrics
+spec:
+  selector:
+    matchLabels:
+      app: prometheus
+      component: server
+  serviceName: prometheus-server
+  template:
+    metadata:
+      annotations:
+        kuma.io/direct-access-services: '*'
+      labels:
+        app: prometheus
+        component: server
+    spec:
+      containers:
+      - args:
+        - --storage.tsdb.retention.time=15d
+        - --config.file=/etc/config/prometheus.yml
+        - --storage.tsdb.path=/data
+        - --web.console.libraries=/etc/prometheus/console_libraries
+        - --web.console.templates=/etc/prometheus/consoles
+        - --web.enable-lifecycle
+        image: default-route-openshift-image-registry.apps.temp-lab.kni.syseng.devcluster.openshift.com/kong-image-registry/prometheus:v2.32.1
+        imagePullPolicy: IfNotPresent
+        name: prometheus-server
+        ports:
+        - containerPort: 9090
+          protocol: TCP
+        resources: {}
+        volumeMounts:
+        - mountPath: /etc/config
+          name: config-volume
+        - mountPath: /data
+          name: storage-volume
+      - args:
+        - --volume-dir=/etc/config
+        - --webhook-url=http://127.0.0.1:9090/-/reload
+        image: default-route-openshift-image-registry.apps.temp-lab.kni.syseng.devcluster.openshift.com/kong-image-registry/configmap-reload:v0.6.1
+        imagePullPolicy: IfNotPresent
+        name: prometheus-server-configmap-reload
+        resources: {}
+        volumeMounts:
+        - mountPath: /etc/config
+          name: config-volume
+          readOnly: true
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsUser: 65534
+      serviceAccount: prometheus-server
+      serviceAccountName: prometheus-server
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: prometheus-server
+        name: config-volume
+  volumeClaimTemplates:
+    - metadata:
+        name: storage-volume
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi

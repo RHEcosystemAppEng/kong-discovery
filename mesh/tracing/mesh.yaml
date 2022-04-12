@@ -1,0 +1,27 @@
+apiVersion: kuma.io/v1alpha1
+kind: Mesh
+metadata:
+  name: default
+spec:
+  mtls:
+    enabledBackend: ca-1
+    backends:
+    - name: ca-1
+      type: builtin
+  tracing:
+    defaultBackend: jaeger-collector
+    backends:
+    - name: jaeger-collector
+      type: zipkin
+      sampling: 100.0
+      conf:
+        url: http://jaeger-collector.kong-mesh-tracing:9411/api/v2/spans    
+  metrics:
+    enabledBackend: prometheus-1
+    backends:
+    - name: prometheus-1
+      type: prometheus
+      conf:
+        port: 5670
+        path: /metrics
+        skipMTLS: false

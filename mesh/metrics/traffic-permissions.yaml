@@ -1,0 +1,34 @@
+apiVersion: kuma.io/v1alpha1
+kind: TrafficPermission
+mesh: default
+metadata:
+  name: metrics-permissions
+spec:
+  sources:
+    - match:
+       kuma.io/service: prometheus-server_kong-mesh-metrics_svc_80
+  destinations:
+    - match:
+       kuma.io/service: dataplane-metrics
+    - match:
+       kuma.io/service: \"prometheus-alertmanager_kong-mesh-metrics_svc_80\"
+    - match:
+       kuma.io/service: \"prometheus-kube-state-metrics_kong-mesh-metrics_svc_80\"
+    - match:
+       kuma.io/service: \"prometheus-kube-state-metrics_kong-mesh-metrics_svc_81\"
+    - match:
+       kuma.io/service: \"prometheus-pushgateway_kong-mesh-metrics_svc_9091\"
+---
+apiVersion: kuma.io/v1alpha1
+kind: TrafficPermission
+mesh: default
+metadata:
+  name: grafana-to-prometheus
+spec:
+   sources:
+   - match:
+      kuma.io/service: \"grafana_kong-mesh-metrics_svc_80\"
+   destinations:
+   - match:
+      kuma.io/service: \"prometheus-server_kong-mesh-metrics_svc_80\"
+      
