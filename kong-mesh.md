@@ -3,7 +3,7 @@
 curl -L https://docs.konghq.com/mesh/installer.sh | sh -
 ```
 
-- Install control plane on kong-mesh-system namespace
+a) Install control plane on kong-mesh-system namespace
 
 ```
 cd kong-mesh-1.6.0/bin
@@ -11,11 +11,11 @@ cd kong-mesh-1.6.0/bin
 oc get pod -n kong-mesh-system
 ```
 
-- Using the internal registry (avoid docker.io)
+b) Using the internal registry (avoid docker.io). See [using the openshift-registry](./openshift-registry/README.md)
 
 ```bash
 KONG_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}')/kong-image-registry
-./kong-mesh-1.6.0/bin/kumactl install control-plane --dataplane-registry=$KONG_REGISTRY --control-plane-registry=$KONG_REGISTRY --cni-enabled --license-path=./license.json  | kubectl apply -f -
+./kumactl install control-plane --dataplane-registry=$KONG_REGISTRY --control-plane-registry=$KONG_REGISTRY --cni-enabled --license-path=./license.json  | kubectl apply -f -
 ```
 
 - Expose the service
@@ -86,6 +86,15 @@ kubectl apply -f mesh/demo/traffic-permissions.yaml
 ```
 
 ## Traffic metrics
+
+Note: If you have configured already the mTLS in your mesh, the default installation won't work because the Grafana
+deployment has an initContainer that pulls the dashboards from a github repository. You can build your own Grafana
+image containing the plugin using the [Dockerfile](./mesh/custom-grafana/Dockerfile).
+
+```bash
+podman build -t $KONG_REGISTRY/grafana:8.3.3-kong ./mesh/custom-grafana
+podman push $KONG_REGISTRY/grafana:8.3.3-kong
+```
 
 - Apply scc  of non-root to ```kuma-metrics```
 ```
