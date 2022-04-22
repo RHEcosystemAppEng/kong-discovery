@@ -21,7 +21,7 @@ KONG_REGISTRY=$(oc get route default-route -n openshift-image-registry --templat
 - Expose the service
 
 ```{bash}
-oc expose svc/kong-mesh-control-plane -n kong-mesh-system
+oc expose svc/kong-mesh-control-plane -n kong-mesh-system --port http-api-server
 ```
 
 - Verify the Installation

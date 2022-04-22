@@ -33,7 +33,7 @@ The route to the external registry is:
 OCP_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}')
 ```
 
-## Trust the registry
+## Trust the registry locally
 
 In order to trust a container registry you first need to extract the certificate and save it to the ca-trust
 
@@ -47,6 +47,14 @@ Login to the registry
 ```bash
 $ podman login -u ruromero -p $(oc whoami -t) $OCP_REGISTRY
 Login Succeeded!
+```
+
+## Trust the external registry URL
+
+```bash
+$ OCP_CERT=$(oc get secret -n openshift-ingress  router-certs-default -o go-template='{{index .data "tls.crt"}}' | base64 -d)
+$ oc create cm -n openshift-config registry-cas2 --from-literal=$OCP_REGISTRY=$OCP_CERT
+$ oc patch image.config.openshift.io/cluster --patch '{"spec":{"additionalTrustedCA":{"name":"registry-cas"}}}' --type=merge
 ```
 
 ## Tag and push the images
