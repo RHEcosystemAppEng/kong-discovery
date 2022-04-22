@@ -1,238 +1,82 @@
-- Download Kong Mesh
-```
-curl -L https://docs.konghq.com/mesh/installer.sh | sh -
-```
+# Use OpenShift registry for Kong images
 
-a) Install control plane on kong-mesh-system namespace
+This document is intended to provide instructions for how to use the openshift image registry
+to avoid depending on docker.io and its rate limits.
 
-```
-cd kong-mesh-1.6.0/bin
-./kumactl install control-plane --cni-enabled --license-path=./license | oc apply -f -
-oc get pod -n kong-mesh-system
-```
+## Create a new project
 
-b) Using the internal registry (avoid docker.io). See [using the openshift-registry](./openshift-registry/README.md)
+I recommend using a dedicated namespace to better identify Kong resources, especially for cleanup.
 
 ```bash
-KONG_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}')/kong-image-registry
-./kumactl install control-plane --dataplane-registry=$KONG_REGISTRY --control-plane-registry=$KONG_REGISTRY --cni-enabled --license-path=./license.json  | kubectl apply -f -
+oc new-project kong-image-registry
 ```
 
-- Expose the service
+## Expose openshift-registry
 
-```{bash}
-oc expose svc/kong-mesh-control-plane -n kong-mesh-system --port http-api-server
-```
+From the [Openshift documentation](https://docs.openshift.com/container-platform/4.10/registry/securing-exposing-registry.html)
 
-- Verify the Installation
-
-```{bash}
-$ http -h `oc get route kong-mesh-control-plane -n kong-mesh-system -ojson | jq -r .spec.host`/gui/
-HTTP/1.1 200 OK
-cache-control: private
-content-length: 295
-content-type: application/json
-date: Tue, 05 Apr 2022 14:54:17 GMT
-set-cookie: 559045d469a6cf01d61b4410371a08e0=35991f4fa47508ce861e82fa7d63d40a; path=/; HttpOnly
-```
-
-## Kuma Demo application
-
-- Apply scc of anyuid to kuma-demo
-```
-oc adm policy add-scc-to-group anyuid system:serviceaccounts:kuma-demo
-```
-
-- Clone the demo repo
-```
-git clone https://github.com/kumahq/kuma-demo.git
-```
-
-- Install resources on kuma-demo ns
-```
-kubectl apply -f kubernetes/kuma-demo-aio.yaml
-```
-
-- Expose the service
-
-```{bash}
-oc expose svc/frontend -n kuma-demo
-```
-
-- Validate the deployment
-
-```{bash}
-$ http -h `oc get route frontend -n kuma-demo -ojson | jq -r .spec.host` 
-HTTP/1.1 200 OK
-```
-
-- Check sidecar injection has been performed
-```
-$ kubectl get po -ojson | jq '.items[] | .spec.containers[] | .name '
-"kuma-fe"
-"kuma-sidecar"
-"kuma-be"
-"kuma-sidecar"
-"master"
-"kuma-sidecar"
-"master"
-"kuma-sidecar"
-```
-
-- Enable MTls and Traffic permissions
-```
-kubectl apply -f mesh/mtls.yaml
-kubectl apply -f mesh/demo/traffic-permissions.yaml
-```
-
-## Traffic metrics
-
-Note: If you have configured already the mTLS in your mesh, the default installation won't work because the Grafana
-deployment has an initContainer that pulls the dashboards from a github repository. You can build your own Grafana
-image containing the plugin using the [Dockerfile](./mesh/custom-grafana/Dockerfile).
+Check if the default route is already exposed:
 
 ```bash
-podman build -t $KONG_REGISTRY/grafana:8.3.3-kong ./mesh/custom-grafana
-podman push $KONG_REGISTRY/grafana:8.3.3-kong
+oc get configs.imageregistry.operator.openshift.io/cluster --template='{{ .spec.defaultRoute }}'
 ```
 
-- Apply scc  of non-root to ```kuma-metrics```
-```
-oc adm policy add-scc-to-group nonroot system:serviceaccounts:kong-mesh-metrics
-#oc adm policy add-scc-to-group node-exporter system:serviceaccounts:kong-mesh-metrics
+If the result of the previous command is not `true`, run the following command:
+
+```bash
+oc patch configs.imageregistry.operator.openshift.io/cluster --patch '{"spec":{"defaultRoute":true}}' --type=merge
 ```
 
-```
-./kumactl install metrics | kubectl apply -f -
+The route to the external registry is:
+
+```bash
+OCP_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}')
 ```
 
-- Patch to use registry images
+## Trust the registry locally
 
+In order to trust a container registry you first need to extract the certificate and save it to the ca-trust
+
+```bash
+oc get secret -n openshift-ingress  router-certs-default -o go-template='{{index .data "tls.crt"}}' | base64 -d | sudo tee /etc/pki/ca-trust/source/anchors/${OCP_REGISTRY}.crt  > /dev/null
+sudo update-ca-trust enable
 ```
-# scale down to 0
-for d in grafana prometheus-pushgateway prometheus-alertmanager prometheus-server
-do 
-  oc scale deployment/$d --replicas=0
+
+Login to the registry
+
+```bash
+$ podman login -u ruromero -p $(oc whoami -t) $OCP_REGISTRY
+Login Succeeded!
+```
+
+## Trust the external registry URL
+
+```bash
+$ OCP_CERT=$(oc get secret -n openshift-ingress  router-certs-default -o go-template='{{index .data "tls.crt"}}' | base64 -d)
+$ oc create cm -n openshift-config registry-cas2 --from-literal=$OCP_REGISTRY=$OCP_CERT
+$ oc patch image.config.openshift.io/cluster --patch '{"spec":{"additionalTrustedCA":{"name":"registry-cas"}}}' --type=merge
+```
+
+## Tag and push the images
+
+Identify all the images needed by the different Kong components and pull them from the original repository (i.e. docker.io), then tag and push
+to the openshift registry.
+
+To make this step simpler, there are different files for each component containing all the images that are used and an utility script that can
+help you automating the process.
+
+```bash
+# Usage ./pull-tag-push.sh filename registry/kong-image-registry
+./pull-tag-push.sh kong-mesh.properties $OCP_REGISTRY/kong-image-registry
+```
+
+## Allow other namespaces to pull from the kong-image-registry
+
+From the [OpenShift documentation](https://docs.openshift.com/container-platform/4.10/openshift_images/managing_images/using-image-pull-secrets.html#images-allow-pods-to-reference-images-across-projects_using-image-pull-secrets)
+
+```bash
+for i in system metrics logging tracing
+do
+    oc policy add-role-to-group system:image-puller system:serviceaccounts:kong-mesh-$i --namespace=kong-image-registry
 done
-
-# grafana
-kubectl patch deployment/grafana -n kong-mesh-metrics --type=json -p "[{\"op\": \"remove\", \"path\": \"/spec/template/spec/initContainers\"}]"
-kubectl patch deployment/grafana -n kong-mesh-metrics -p "{\"spec\": {\"template\":{\"spec\": {\"containers\": [{\"name\": \"grafana\", \"image\": \"$KONG_REGISTRY/grafana:8.3.3-kong\"}]}}}}"
-
-# prometheuses
-kubectl patch deployment/prometheus-alertmanager -n kong-mesh-metrics -p "{\"spec\": {\"template\":{\"spec\": {\"containers\": [{\"name\": \"prometheus-alertmanager\", \"image\": \"$KONG_REGISTRY/alertmanager:v0.23.0\"},{\"name\": \"prometheus-alertmanager-configmap-reload\", \"image\": \"$KONG_REGISTRY/configmap-reload:v0.6.1\"}]}}}}"
-kubectl patch deployment/prometheus-pushgateway -n kong-mesh-metrics -p "{\"spec\": {\"template\":{\"spec\": {\"containers\": [{\"name\": \"prometheus-pushgateway\", \"image\": \"$KONG_REGISTRY/pushgateway:v1.4.2\"}]}}}}"
-kubectl patch deployment/prometheus-server -n kong-mesh-metrics -p "{\"spec\": {\"template\":{\"spec\": {\"containers\": [{\"name\": \"prometheus-server\", \"image\": \"$KONG_REGISTRY/prometheus:v2.32.1\"},{\"name\": \"prometheus-server-configmap-reload\", \"image\": \"$KONG_REGISTRY/configmap-reload:v0.6.1\"}]}}}}"
-
-# scale down back up
-for d in grafana prometheus-pushgateway prometheus-alertmanager prometheus-server
-do 
-  oc scale deployment/$d --replicas=1
-done
-```
-
-Configure the metrics in the existing mesh
-
-```{bash}
-kubectl apply -f mesh/metrics/mesh.yaml
-```
-
-Allow traffic from Grafana to Prometheus Server and from Prometheus server to data plane proxy metrics and other Prometheus components:
-
-```bash
-kubectl apply -f mesh/metrics/traffic-permissions.yaml
-```
-
-## Tracing
-
-./kong-mesh-1.6.0/bin/kumactl install tracing | kubectl apply -f -
-
-```{bash}
-kubectl apply -f mesh/tracing/mesh.yaml
-```
-
-- Add TrafficTrace resource
-
-```bash
-kubectl apply -f mesh/tracing/traffic-trace.yaml
-```
-
-- Update the jaeger datasource in grafana: Go to the Grafana UI -> Settings -> Data Sources -> Jaeger 
-and set the URL to http://jaeger-query.kong-mesh-tracing/
-
-## Logging
-
-The loki statefulset requires anyuid capabilities so the anyuid should be used
-```bash
-oc adm policy add-scc-to-group anyuid system:serviceaccounts:kong-mesh-logging
-```
-
-```bash
-./kong-mesh-1.6.0/bin/kumactl install logging | kubectl apply -f -
-```
-
-Create a ClusterRole for the loki-promtail serviceAccount
-```bash
-kubectl apply -f mesh/logging/cluster-role.yaml
-```
-
-Make the loki-promtail containers run as privileged
-
-```bash
-kubectl patch daemonset/loki-promtail -p "{\"spec\": {\"template\":{\"spec\": {\"containers\": [{\"name\": \"promtail\", \"securityContext\": {\"privileged\": true}}]}}}}"
-```
-
-Add the logging backend to the existing Mesh
-
-```{bash}
-kubectl apply -f mesh/logging/mesh.yaml
-```
-
-Create the TrafficLog
-
-```bash
-kubectl apply -f mesh/logging/traffic-log.yaml
-```
-
-Update the grafana datasource to `http://loki.kong-mesh-logging:3100`
-
-## Clean up
-
-- Delete demo project
-
-```bash
-oc adm policy remove-scc-from-group anyuid system:serviceaccounts:kuma-demo
-kubectl delete ns kuma-demo
-```
-
-- Uninstall logging
-
-```bash
-./kong-mesh-1.6.0/bin/kumactl install logging | kubectl delete -f -
-```
-
-- Uninstall tracing
-
-```bash
-./kong-mesh-1.6.0/bin/kumactl install tracing | kubectl delete -f -
-```
-
-- Uninstall metrics
-
-```bash
-kubectl delete trafficpermission grafana-to-prometheus metrics-permissions
-oc adm policy remove-scc-from-group nonroot system:serviceaccounts:kong-mesh-metrics
-/kong-mesh-1.6.0/bin/kumactl install metrics | kubectl delete -f -
-```
-
-- Uninstall kong mesh
-
-```bash
-./kong-mesh-1.6.0/bin/kumactl install control-plane --dataplane-registry=default-route-openshift-image-registry.apps.mw-ocp4.cloud.lab.eng.bos.redhat.com/kong-image-registry --control-plane-registry=default-route-openshift-image-registry.apps.mw-ocp4.cloud.lab.eng.bos.redhat.com/kong-mesh-system --cni-enabled --license-path=./license.json  | kubectl delete -f -
-```
-
-- Remove registry if used
-
-```bash
-kubectl delete ns kong-image-registry
 ```
