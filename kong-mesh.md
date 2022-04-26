@@ -6,7 +6,6 @@ curl -L https://docs.konghq.com/mesh/installer.sh | sh -
 a) Install control plane on kong-mesh-system namespace
 
 ```
-cd kong-mesh-1.6.0/bin
 ./kumactl install control-plane --cni-enabled --license-path=./license | oc apply -f -
 oc get pod -n kong-mesh-system
 ```
@@ -266,13 +265,13 @@ kubectl delete ns kuma-demo
 - Uninstall logging
 
 ```bash
-./kong-mesh-1.6.0/bin/kumactl install logging | kubectl delete -f -
+./kumactl install logging | kubectl delete -f -
 ```
 
 - Uninstall tracing
 
 ```bash
-./kong-mesh-1.6.0/bin/kumactl install tracing | kubectl delete -f -
+./kumactl install tracing | kubectl delete -f -
 ```
 
 - Uninstall metrics
@@ -280,13 +279,13 @@ kubectl delete ns kuma-demo
 ```bash
 kubectl delete trafficpermission grafana-to-prometheus metrics-permissions
 oc adm policy remove-scc-from-group nonroot system:serviceaccounts:kong-mesh-metrics
-/kong-mesh-1.6.0/bin/kumactl install metrics | kubectl delete -f -
+./kumactl install metrics | kubectl delete -f -
 ```
 
 - Uninstall kong mesh
 
 ```bash
-./kong-mesh-1.6.0/bin/kumactl install control-plane --dataplane-registry=default-route-openshift-image-registry.apps.mw-ocp4.cloud.lab.eng.bos.redhat.com/kong-image-registry --control-plane-registry=default-route-openshift-image-registry.apps.mw-ocp4.cloud.lab.eng.bos.redhat.com/kong-mesh-system --cni-enabled --license-path=./license.json  | kubectl delete -f -
+./kumactl install control-plane --dataplane-registry=default-route-openshift-image-registry.apps.mw-ocp4.cloud.lab.eng.bos.redhat.com/kong-image-registry --control-plane-registry=default-route-openshift-image-registry.apps.mw-ocp4.cloud.lab.eng.bos.redhat.com/kong-mesh-system --cni-enabled --license-path=./license.json  | kubectl delete -f -
 ```
 
 - Remove registry if used
