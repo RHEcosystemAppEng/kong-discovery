@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kong
+  namespace: kuma-demo
+spec:
+  ingressClassName: kong
+  rules:
+  - http:
+      paths:
+      - path: /kuma-demo
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 8080
