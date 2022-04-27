@@ -42,15 +42,9 @@ set-cookie: 559045d469a6cf01d61b4410371a08e0=35991f4fa47508ce861e82fa7d63d40a; p
 oc adm policy add-scc-to-group anyuid system:serviceaccounts:kuma-demo
 ```
 
-- Clone the demo repo
-```
-oc policy add-role-to-group system:image-puller system:serviceaccounts:kuma-demo --namespace=kong-image-registry
-git clone https://github.com/kumahq/kuma-demo.git
-```
-
 - Install resources on kuma-demo ns
 ```
-kubectl apply -f kubernetes/kuma-demo-aio.yaml
+kubectl apply -f https://raw.githubusercontent.com/kumahq/kuma-demo/master/kubernetes/kuma-demo-aio.yaml
 ```
 
 - Expose the service
@@ -88,6 +82,7 @@ oc port-forward svc/frontend -n kuma-demo 8080
 ```
 
 Applying the mtls will no longer allow traffic from route to the service. TBC - KIC needs to be implemented.
+
 ## Traffic metrics
 
 Note: If you have configured already the mTLS in your mesh, the default installation won't work because the Grafana

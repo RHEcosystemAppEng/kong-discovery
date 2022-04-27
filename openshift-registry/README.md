@@ -53,7 +53,7 @@ Login Succeeded!
 
 ```bash
 $ OCP_CERT=$(oc get secret -n openshift-ingress  router-certs-default -o go-template='{{index .data "tls.crt"}}' | base64 -d)
-$ oc create cm -n openshift-config registry-cas --from-literal=$OCP_REGISTRY=$OCP_CERT
+oc create cm -n openshift-config registry-cas --from-literal="${OCP_REGISTRY}"="${OCP_CERT}"
 $ oc patch image.config.openshift.io/cluster --patch '{"spec":{"additionalTrustedCA":{"name":"registry-cas"}}}' --type=merge
 ```
 
