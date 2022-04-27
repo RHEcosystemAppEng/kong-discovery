@@ -1,3 +1,4 @@
+- Deployment using helm charts
 - CP/DP with Ingress Controller, DevPortal and RBAC
 
 - Control Plane
