@@ -2,11 +2,11 @@ apiVersion: kuma.io/v1alpha1
 kind: TrafficPermission
 mesh: default
 metadata:
-  name: gateway-to-postgres
+  name: ingress-to-mesh
 spec:
   destinations:
   - match:
-      kuma.io/service: postgres_kong_svc_5432
+      kuma.io/service: '*'
   sources:
   - match:
-      kuma.io/service: kong-admin_kong_svc_80
+      kuma.io/service: kong-kong-proxy_kong_svc_8000

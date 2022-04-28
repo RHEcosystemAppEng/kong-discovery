@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-kong-proxy
+  namespace: kong
+spec:
+  ports:
+  - name: proxy
+    port: 8000
+    protocol: TCP
+    targetPort: 8000
+  - name: proxy-ssl
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    app: kong-kong
+  type: ClusterIP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kong-kong-proxy
+  namespace: kong
+spec:
+  port:
+    targetPort: proxy
+  to:
+    kind: Service
+    name: kong-kong-proxy
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kong-kong-proxy-ssl
+  namespace: kong
+spec:
+  port:
+    targetPort: proxy-ssl
+  to:
+    kind: Service
+    name: kong-kong-proxy    
+  tls:
+    termination: passthrough

@@ -1,14 +1,16 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: kong
+  name: demo-app-ingress
   namespace: kuma-demo
+  annotations:
+    konghq.com/strip-path: "true"
 spec:
   ingressClassName: kong
   rules:
   - http:
       paths:
-      - path: /kuma-demo
+      - path: /demo-app
         pathType: Prefix
         backend:
           service:

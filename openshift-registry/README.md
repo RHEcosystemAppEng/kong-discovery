@@ -52,9 +52,9 @@ Login Succeeded!
 ## Trust the external registry URL
 
 ```bash
-$ OCP_CERT=$(oc get secret -n openshift-ingress  router-certs-default -o go-template='{{index .data "tls.crt"}}' | base64 -d)
+OCP_CERT=$(oc get secret -n openshift-ingress  router-certs-default -o go-template='{{index .data "tls.crt"}}' | base64 -d)
 oc create cm -n openshift-config registry-cas --from-literal="${OCP_REGISTRY}"="${OCP_CERT}"
-$ oc patch image.config.openshift.io/cluster --patch '{"spec":{"additionalTrustedCA":{"name":"registry-cas"}}}' --type=merge
+oc patch image.config.openshift.io/cluster --patch '{"spec":{"additionalTrustedCA":{"name":"registry-cas"}}}' --type=merge
 ```
 
 ## Tag and push the images
@@ -75,7 +75,7 @@ help you automating the process.
 From the [OpenShift documentation](https://docs.openshift.com/container-platform/4.10/openshift_images/managing_images/using-image-pull-secrets.html#images-allow-pods-to-reference-images-across-projects_using-image-pull-secrets)
 
 ```bash
-for i in system metrics logging tracing
+for i in system metrics logging tracing kic
 do
     oc policy add-role-to-group system:image-puller system:serviceaccounts:kong-mesh-$i --namespace=kong-image-registry
 done
