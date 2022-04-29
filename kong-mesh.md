@@ -248,6 +248,30 @@ kubectl apply -f mesh/logging/traffic-log.yaml
 
 Update the grafana datasource to `http://loki.kong-mesh-logging:3100`
 
+## FaultInjection
+
+FaultInjections helps testing our microservices against resiliency. There are 3 different ypes of failures that could be 
+imitated in our environment:
+
+- [Delay](https://kuma.io/docs/1.6.x/policies/fault-injection/#delay)
+- [Abort](https://kuma.io/docs/1.6.x/policies/fault-injection/#abort)
+- [ResponseBandwidth](https://kuma.io/docs/1.5.x/policies/fault-injection/#responsebandwidth-limit)
+
+Create an example FaultInjection that adds a bit of everything:
+
+```bash
+kubectl apply -f mesh/fault_injection.yaml
+```
+
+Then browse the application and see how the website resources randomly
+fail to be fetched, are delayed or corrupted (due to the bandwitdh limitation).
+
+Once finished, remove the faultInjection resource
+
+```bash
+kubectl delete -f mesh/fault_injection.yaml
+```
+
 ## Clean up
 
 - Delete demo project
