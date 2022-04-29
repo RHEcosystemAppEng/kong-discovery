@@ -1,3 +1,15 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: demo-app
+  namespace: kong
+spec:
+  port:
+    targetPort: proxy
+  to:
+    kind: Service
+    name: kong-kong-proxy
+---    
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -5,11 +17,11 @@ metadata:
   namespace: kuma-demo
   annotations:
     konghq.com/strip-path: "true"
-    konghq.com/plugins: rate-free-tier
 spec:
   ingressClassName: kong
   rules:
-  - http:
+  - host: demo-app-kong.$OCP_DOMAIN
+    http:
       paths:
       - path: /
         pathType: Prefix

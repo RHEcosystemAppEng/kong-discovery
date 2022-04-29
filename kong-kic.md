@@ -94,16 +94,18 @@ oc apply -f kic/traffic_permission.yaml
 
 ## Proxy traffic to our demo app
 
-Create the kuma-demo ingress
+Create the kuma-demo ingress. We're creating a specific route in the kong namespace for setting
+a dedicated hostname for this ingress.
 
-```
-oc apply -f kic/kuma-demo-ingress.yaml
+```bash
+OCP_DOMAIN=`oc get ingresses.config/cluster -o jsonpath={.spec.domain}`
+sed -e "s/\${i}/1/" -e "s/\$OCP_DOMAIN/$OCP_DOMAIN/" kic/kuma-demo-ingress.yaml | kubectl apply -f -
 ```
 
 You can now access your application:
 
 ```
-http `oc get route kong-kong-proxy --template='{{ .spec.host }}'`/
+http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/
 ```
 
 ### Using Plugins
@@ -119,12 +121,13 @@ Create a KongPlugin and update the Ingress to use it.
 
 ```bash
 kubectl apply -f kic/simple-rate-limiting.yaml
+oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins=rate-free-tier
 ```
 
 After that, you can see in the HTTP headers the rate limiting information:
 
 ```bash
-$ http `oc get route -n kong kong-kong-proxy --template='{{ .spec.host }}'`/demo-app
+$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/demo-app
 HTTP/1.1 200 OK
 ...
 ratelimit-limit: 10
@@ -151,12 +154,13 @@ Then apply the complex-rate-limiting file that creates all the necessary resourc
 
 ```bash
 kubectl apply -f kic/complex-rate-limiting.yaml
+oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins=user1-auth,rate-paid-tier
 ```
 
 Let's try the auth plugin and the rate limiting without providing the apiKey
 
 ```bash
-$ http `oc get route -n kong kong-kong-proxy --template='{{ .spec.host }}'`/             
+$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/             
 HTTP/1.1 401 Unauthorized
 content-length: 45
 content-type: application/json; charset=utf-8
@@ -174,7 +178,7 @@ x-kong-response-latency: 0
 Now let's provide an invalid apiKey
 
 ```bash
-$ http `oc get route -n kong kong-kong-proxy --template='{{ .spec.host }}'`/ apiKey:invalid         
+$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/ apiKey:invalid         
 HTTP/1.1 401 Unauthorized
 content-length: 52
 content-type: application/json; charset=utf-8
@@ -191,7 +195,7 @@ x-kong-response-latency: 0
 Finally, let's make Kong happy by providing the right apiKey
 
 ```bash
-$ http `oc get route -n kong kong-kong-proxy --template='{{ .spec.host }}'`/ apiKey:demo   
+$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/ apiKey:demo   
 HTTP/1.1 200 OK
 ratelimit-limit: 100
 ratelimit-remaining: 99
@@ -207,12 +211,13 @@ Remove all the resources we used:
 ```bash
 kubectl delete secret user1-apikey -n kuma-demo
 kubectl delete -f kic/complex-rate-limiting.yaml
+kubectl delete -f kic/simple-rate-limiting.yaml
 ```
 
-Restore the original ingress
+Restore the original ingress annotations
 
 ```bash
-kubectl apply -f kic/kuma-demo-ingress.yaml
+oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins-
 ```
 
 ## Uninstall
