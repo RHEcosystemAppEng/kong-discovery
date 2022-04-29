@@ -1,0 +1,48 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: user1-auth
+  namespace: kuma-demo
+plugin: key-auth
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongConsumer
+metadata:
+  name: user1
+  annotations:
+    kubernetes.io/ingress.class: kong
+username: user1
+credentials:
+  - user1-apikey
+---
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: rate-paid-tier
+  namespace: kuma-demo
+config: 
+  minute: 100
+  policy: local
+  limit_by: consumer
+plugin: rate-limiting
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-app-ingress
+  namespace: kuma-demo
+  annotations:
+    konghq.com/strip-path: "true"
+    konghq.com/plugins: user1-auth,rate-paid-tier
+spec:
+  ingressClassName: kong
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 8080

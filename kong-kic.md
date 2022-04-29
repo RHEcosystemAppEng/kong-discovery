@@ -95,6 +95,7 @@ oc apply -f kic/traffic_permission.yaml
 ## Proxy traffic to our demo app
 
 Create the kuma-demo ingress
+
 ```
 oc apply -f kic/kuma-demo-ingress.yaml
 ```
@@ -102,7 +103,116 @@ oc apply -f kic/kuma-demo-ingress.yaml
 You can now access your application:
 
 ```
-http `oc get route kong-kong-proxy --template='{{ .spec.host }}'`/demo-app
+http `oc get route kong-kong-proxy --template='{{ .spec.host }}'`/
+```
+
+### Using Plugins
+
+There are 2 types of plugins:
+
+* KongPlugins: Can be used by resources in the same namespace
+* KongClusterPlugins: Can be used cluster wide
+
+### RateLimiting example
+
+Create a KongPlugin and update the Ingress to use it.
+
+```bash
+kubectl apply -f kic/simple-rate-limiting.yaml
+```
+
+After that, you can see in the HTTP headers the rate limiting information:
+
+```bash
+$ http `oc get route -n kong kong-kong-proxy --template='{{ .spec.host }}'`/demo-app
+HTTP/1.1 200 OK
+...
+ratelimit-limit: 10
+ratelimit-remaining: 9
+ratelimit-reset: 54
+x-ratelimit-limit-minute: 10
+x-ratelimit-remaining-minute: 9
+```
+
+### Advanced RateLimiting example
+
+It is also possible to limit rating based on the authenticated user. For that we can create a secret with the apiKey
+of a consumer, the KongConsumer that will be matched to this apiKey thanks to the auth-plugin.
+
+Then the rate limiting plugin will be defined by consumer. Allowing only authenticated users.
+
+First, create a configmap with the credentials
+
+```bash
+oc create secret generic user1-apikey -n kuma-demo --from-literal=kongCredType=key-auth --from-literal=key=demo
+```
+
+Then apply the complex-rate-limiting file that creates all the necessary resources and updates the ingress
+
+```bash
+kubectl apply -f kic/complex-rate-limiting.yaml
+```
+
+Let's try the auth plugin and the rate limiting without providing the apiKey
+
+```bash
+$ http `oc get route -n kong kong-kong-proxy --template='{{ .spec.host }}'`/             
+HTTP/1.1 401 Unauthorized
+content-length: 45
+content-type: application/json; charset=utf-8
+date: Fri, 29 Apr 2022 12:05:30 GMT
+server: kong/2.8.1.0-enterprise-edition
+set-cookie: 157c7d417676c54695fa6cf886b2feeb=6b42459352c6c11b78a624dfb4af1f0b; path=/; HttpOnly
+www-authenticate: Key realm="kong"
+x-kong-response-latency: 0
+
+{
+    "message": "No API key found in request"
+}
+```
+
+Now let's provide an invalid apiKey
+
+```bash
+$ http `oc get route -n kong kong-kong-proxy --template='{{ .spec.host }}'`/ apiKey:invalid         
+HTTP/1.1 401 Unauthorized
+content-length: 52
+content-type: application/json; charset=utf-8
+date: Fri, 29 Apr 2022 12:06:31 GMT
+server: kong/2.8.1.0-enterprise-edition
+set-cookie: 157c7d417676c54695fa6cf886b2feeb=6b42459352c6c11b78a624dfb4af1f0b; path=/; HttpOnly
+x-kong-response-latency: 0
+
+{
+    "message": "Invalid authentication credentials"
+}
+```
+
+Finally, let's make Kong happy by providing the right apiKey
+
+```bash
+$ http `oc get route -n kong kong-kong-proxy --template='{{ .spec.host }}'`/ apiKey:demo   
+HTTP/1.1 200 OK
+ratelimit-limit: 100
+ratelimit-remaining: 99
+ratelimit-reset: 56
+x-ratelimit-limit-minute: 100
+x-ratelimit-remaining-minute: 99
+```
+
+### Restore the configuration
+
+Remove all the resources we used:
+
+```bash
+kubectl delete secret user1-apikey -n kuma-demo
+kubectl delete -f kic/complex-rate-limiting.yaml
+```
+
+Restore the original ingress
+
+```bash
+kubectl apply -f kic/kuma-demo-ingress.yaml
 ```
 
 ## Uninstall
