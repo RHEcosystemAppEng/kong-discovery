@@ -378,6 +378,7 @@ http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sample
 kubectl delete ingress sampleroute
 kubectl delete ingress route1
 kubectl delete service route1-ext
+kubectl delete pvc --all -n kong --force --grace-period=0 
 
 helm uninstall kong -n kong
 helm uninstall kong-dp -n kong-dp
@@ -385,4 +386,5 @@ helm uninstall kong-dp -n kong-dp
 oc delete project kong
 oc delete project kong-dp
 kubectl delete -f https://bit.ly/kong-ingress-enterprise
+
 ```
