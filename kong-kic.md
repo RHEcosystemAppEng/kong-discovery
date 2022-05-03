@@ -94,6 +94,8 @@ oc apply -f kic/traffic_permission.yaml
 
 ## Proxy traffic to our demo app
 
+Deploy the [kuma-demo application](./kong-mesh.md#kuma-demo-application) on the `kuma-demo` namespace.
+
 Create the kuma-demo ingress. We're creating a specific route in the kong namespace for setting
 a dedicated hostname for this ingress.
 

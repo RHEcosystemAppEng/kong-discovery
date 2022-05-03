@@ -9,6 +9,7 @@ apiVersion: configuration.konghq.com/v1
 kind: KongConsumer
 metadata:
   name: user1
+  namespace: kuma-demo
   annotations:
     kubernetes.io/ingress.class: kong
 username: user1
