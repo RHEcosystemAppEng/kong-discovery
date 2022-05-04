@@ -180,6 +180,15 @@ OCP_DOMAIN=`oc get ingresses.config/cluster -o jsonpath={.spec.domain}`
 sed -e "s/\${i}/1/" -e "s/\$OCP_DOMAIN/$OCP_DOMAIN/" kic/kuma-demo-ingress.yaml | kubectl apply -f -
 ```
 
+### Grant the Data Plane to access the mesh
+
+If the `allow-all-default` traffic permission is not present meaning that you have to grant traffic between
+all services, you will have to create a traffic permission for the Data Plane Gateway.
+
+```bash
+oc apply -f gateway/traffic-permissions.yaml
+```
+
 ### Validate the demo app
 
 You can access the application in the browser or with httpie
@@ -190,7 +199,7 @@ http `oc get route demo-app -n kong-dp --template='{{ .spec.host }}'`
 
 ## Uninstall
 
-Uninstall the Helm charts, the scc policies and the namespaces
+Uninstall the Helm charts, the scc policies, trafficpermissions and the namespaces
 
 ```bash
 helm delete kong -n kong-dp
@@ -198,6 +207,8 @@ helm delete kong -n kong
 
 oc adm policy remove-scc-from-group anyuid system:serviceaccounts:kong-dp
 oc adm policy remove-scc-from-group anyuid system:serviceaccounts:kong
+
+oc delete trafficpermission gateway-to-mesh
 
 oc delete ns kong kong-dp
 ```

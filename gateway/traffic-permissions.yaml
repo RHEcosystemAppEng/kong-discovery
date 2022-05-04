@@ -1,0 +1,12 @@
+apiVersion: kuma.io/v1alpha1
+kind: TrafficPermission
+mesh: default
+metadata:
+  name: gateway-to-mesh
+spec:
+  sources:
+  - match:
+      kuma.io/service: kong-kong-proxy_kong-dp_svc_80
+  destinations:
+  - match:
+      kuma.io/service: '*'
