@@ -75,8 +75,8 @@ help you automating the process.
 From the [OpenShift documentation](https://docs.openshift.com/container-platform/4.10/openshift_images/managing_images/using-image-pull-secrets.html#images-allow-pods-to-reference-images-across-projects_using-image-pull-secrets)
 
 ```bash
-for i in system metrics logging tracing kic
+for i in kong-mesh-system kong-mesh-metrics kong-mesh-logging kong-mesh-tracing kong kong-dp kuma-demo
 do
-    oc policy add-role-to-group system:image-puller system:serviceaccounts:kong-mesh-$i --namespace=kong-image-registry
+    oc policy add-role-to-group system:image-puller system:serviceaccounts:$i --namespace=kong-image-registry
 done
 ```

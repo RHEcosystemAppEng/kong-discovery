@@ -3,20 +3,6 @@ kind: TrafficPermission
 mesh: default
 metadata:
   namespace: kuma-demo
-  name: kong-to-frontend
-spec:
-  sources:
-  - match:
-      kuma.io/service: kong-validation-webhook_kuma-demo_svc_443
-  destinations:
-  - match:
-      kuma.io/service: frontend_kuma-demo_svc_8080
----
-apiVersion: kuma.io/v1alpha1
-kind: TrafficPermission
-mesh: default
-metadata:
-  namespace: kuma-demo
   name: frontend-to-backend
 spec:
   sources:
@@ -52,4 +38,4 @@ spec:
       kuma.io/service: backend_kuma-demo_svc_3001
   destinations:
   - match:
-      kuma.io/service: redis_kuma-demo_svc_6379      
+      kuma.io/service: redis_kuma-demo_svc_6379
