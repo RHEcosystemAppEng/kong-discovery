@@ -1,0 +1,11 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: demo-app
+  namespace: kong-dp
+spec:
+  port:
+    targetPort: proxy
+  to:
+    kind: Service
+    name: kong-kong-proxy

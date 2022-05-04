@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-app-ingress
+  namespace: kuma-demo
+  annotations:
+    konghq.com/strip-path: "true"
+spec:
+  ingressClassName: kong
+  rules:
+  - host: demo-app-kong-dp.$OCP_DOMAIN
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 8080

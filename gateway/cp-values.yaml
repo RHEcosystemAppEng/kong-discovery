@@ -1,0 +1,57 @@
+ingressController:
+  enabled: true
+  installCRDs: false
+  image:
+    repository: $OCP_REGISTRY/kong-image-registry/kubernetes-ingress-controller
+    tag: 2.3.1
+image:
+  repository: $OCP_REGISTRY/kong-image-registry/kong-gateway
+  tag: 2.8.0.0-alpine
+env:
+  database: postgres
+  role: control_plane
+  cluster_cert: /etc/secrets/kong-cluster-cert/tls.crt
+  cluster_cert_key: /etc/secrets/kong-cluster-cert/tls.key
+cluster:
+  enabled: true
+  tls:
+    enabled: true
+    servicePort: 8005
+    containerPort: 8005
+clustertelemetry:
+  enabled: true
+  tls:
+    enabled: true
+    servicePort: 8006
+    containerPort: 8006
+proxy:
+  enabled: true
+  type: ClusterIP
+secretVolumes: 
+  - kong-cluster-cert
+admin:
+  enabled: true
+  http:
+    enabled: true
+  type: ClusterIP
+enterprise:
+  enabled: true
+  license_secret: kong-enterprise-license
+  portal:
+    enabled: false
+  rbac:
+    enabled: false
+  smtp:
+    enabled: false
+manager:
+  enabled: true
+  type: ClusterIP
+postgresql:
+  enabled: true
+  auth:
+    username: kong
+    password: kong
+    database: kong
+  image:
+    registry: $OCP_REGISTRY
+    repository: kong-image-registry/postgresql

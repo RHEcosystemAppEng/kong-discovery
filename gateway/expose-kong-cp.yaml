@@ -1,0 +1,51 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kong-kong-admin
+  namespace: kong
+spec:
+  port:
+    targetPort: kong-admin
+  to:
+    kind: Service
+    name: kong-kong-admin
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kong-kong-admin-tls
+  namespace: kong
+spec:
+  port:
+    targetPort: proxy-admin-tls
+  to:
+    kind: Service
+    name: kong-kong-admin-tls    
+  tls:
+    termination: passthrough
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kong-kong-manager
+  namespace: kong
+spec:
+  port:
+    targetPort: kong-manager
+  to:
+    kind: Service
+    name: kong-kong-manager
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kong-kong-manager-tls
+  namespace: kong
+spec:
+  port:
+    targetPort: proxy-manager-tls
+  to:
+    kind: Service
+    name: kong-kong-manager    
+  tls:
+    termination: passthrough
