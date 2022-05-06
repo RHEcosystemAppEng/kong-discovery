@@ -1,20 +1,19 @@
 # Federate Kong Mesh Metrics
-in this document, we will federate the Kong Mesh Prometheus to the OpenShift Prometheus. We will then leverage OpenShift Monitoring to handle Kong Mesh metrics.
+We will federate the Kong Mesh Prometheus to the OpenShift Prometheus. We will then leverage OpenShift Monitoring to handle the aggregated metrics.
 
 **Pending**
-- [ ] Define more Params in `ServiceMonitor` to improve flow of data
-- [ ] Reduce Prometheus Metrics Usage with relabeling
-- [ ] Create PrometheusRules for Alerting when something goes down 
-- [ ] Create Dashboards    
+- [x] Define more Params in `ServiceMonitor` to dedupe metrics from Kong
+- [x] Create PrometheusRules for Alerting when something goes down 
+- [ ] Create Dashboards (Grafana Depricated, talk to team)
    
 **TOC**
 - [Install Kong Mesh](#install-kong-mesh)
 - [Configure Metrics](#configure-metrics)
 - [Create RBAC](#create-a-clusterrolebinding-to-allow-scraping)
 - [Federate Metrics to OpenShift Monitoring](#federate-metrics-to-openshift-monitoring)
-- [IGNORE- Test The Federate Endpoint of Kong Prometheus](#test-the-federate-endpoint-of-kong-prometheus)
 - [Make sure you are scraping Metrics](#make-sure-you-are-scraping-metrics)
 - [Clean Up](#clean-up)
+- [IGNORE- Test The Federate Endpoint of Kong Prometheus](#test-the-federate-endpoint-of-kong-prometheus)
 ---
 ## Install Kong Mesh
 - Download Kong Mesh
@@ -72,11 +71,6 @@ Install metrics
 kubectl scale deploy/grafana -n kong-mesh-metrics --replicas=0
 ```
 
-**Ignore** this block and do not copy and paste (WIP, more to come)
-```
-# take grafana out of the mesh
-kubectl patch deploy/grafana -n kong-mesh-metrics -p '{"spec": {"template":{"metadata":{"annotations":{"kuma.io/sidecar-injection":"false"}}}} }'
-```
 
 Configure the metrics in the existing mesh
 
@@ -105,7 +99,7 @@ EOF
 ```
 
 
-Remove the Sidecars (Still working through a more robust)
+Remove the Sidecars (Still working through a solution with sidecars)
 ```
 kubectl label ns kong-mesh-metrics kuma.io/sidecar-injection-
 
@@ -164,7 +158,9 @@ k auth can-i get services --namespace=kong-mesh-metrics --as system:serviceaccou
 
 
 ## Federate Metrics to OpenShift Monitoring
-Create a ServiceMonitor in OpenShift Monitoring to scrape from Kong
+A `ServiceMonitor` is meant to tell Prometheus what metrics to scrape. Typically we use a `ServiceMonitor` or `PodMonitor` per application. Another thing that a ServiceMonitor can do is define a prometheus instance for federation.    
+   
+Create a ServiceMonitor in OpenShift Monitoring to scrape Kong Metrics
 ```
 kubectl apply -f -<<EOF
 apiVersion: monitoring.coreos.com/v1
@@ -184,39 +180,24 @@ spec:
       app: prometheus
       component: server
   endpoints:
-  - interval: 15s
-    scrapeTimeout: 15s
+  - interval: 2s # we should use 30 seconds (only for demo)
+    scrapeTimeout: 2s # we should use 30 seconds (only for demo)
     path: /federate
     targetPort: 9090
     port: http
     params:
       'match[]':
       - '{job=~"kuma-dataplanes"}'
-      - '{job=~"kubernetes-nodes-cadvisor"}'
+      - '{job=~"kubernetes-service-endpoints",kubernetes_namespace=~"kong-mesh-system"}'
     honorLabels: true
-#    metricRelabelings:
-#    - sourceLabels: ["__name__"]
-#      regex: 'workload:(.*)'
-#      targetLabel: "__name__"
-#      action: replace
 EOF
 ```
 
 
 
-Make sure logs are clean
+Make sure OCP Prom logs are clean
 ```
-k logs prometheus-k8s-1  -n openshift-monitoring --since=1m | grep kong-mesh-metrics
-```
-
-## Test The Federate Endpoint of Kong Prometheus
-**Ignore** Do not do this block, we are currently getting way too many metrics and need to filter down. This is effectively a DDoS attach on the Kong Prometheus right now until we deduplicate the metrics. You can try it but at your own risk. (To try you need to port-forward the Kong Prometheus to 8888)
-```
-# curl -v -G --data-urlencode 'match[]={job!=""}'  http://localhost:8888/federate
-
-# curl -v -G --data-urlencode 'match[]={job=~".+"}'  http://localhost:8888/federate 
-
-curl -v -G --data-urlencode 'match[]={job=~"kubernetes-nodes-cadvisor"}'  http://localhost:8888/federate
+kubectl logs prometheus-k8s-1  -n openshift-monitoring --since=1m | grep kong-mesh-metrics
 ```
 
 ## Make sure you are scraping Metrics
@@ -228,12 +209,119 @@ Go to Prom:
 kubectl  port-forward svc/prometheus-operated  -n openshift-monitoring 9090 
 ```
 
-open [prometheus locally](http://localhost:9090)
-
-Click Status, then *Targets* on the top Menu Bar
+open [Prometheus Targets](http://localhost:9090/targets)
 
 do `ctrl-f` or whatever you do to search in your browser and search for `kong-federation`
 
+## Create PrometheusRules
+Prom rules alert us when things go wrong. The simplest and most important prometheus rules that you can have are rules that trigger alerts when services go down and stay down. We are going to define two rules:  
+1. Alert when ControlPlane goes down
+2. Alert when Federation goes down (Kong's Prom Server is down)
+
+
+Lets create the PromRule
+```
+kubectl apply -f -<<EOF
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    role: alert-rules
+  name: mesh-rules
+  namespace: openshift-monitoring
+spec:
+  groups:
+  - name: mesh-rules
+    rules:
+    - alert: KongControlPlaneDown
+      annotations:
+        description: ControlPlane pod has not been ready for over a minute.
+        summary: CP is down.
+      expr: absent(kube_pod_container_status_ready{container="control-plane", endpoint="https-main", job="kube-state-metrics", namespace="kong-mesh-system",service="kube-state-metrics"})
+      for: 5s
+      labels:
+        severity: critical
+    - alert: KongMetricsDown
+      annotations:
+        description: Kong Metrics not being federated.
+        summary: Kong Prometheus is down.
+      expr: absent(kube_pod_container_status_ready{container="prometheus-server",namespace="kong-mesh-metrics"})
+      for: 1m
+      labels:
+        severity: critical
+EOF
+```
+
+We want to be alerted when a critical service goes down, so lets test the alert to make sure we will be notified when these incidents occur.
+
+**Take down the Kong ControlPlane**
+```
+kubectl scale deploy -n kong-mesh-system --replicas=0 --all
+kubectl delete po -n kong-mesh-system --all --force --grace-period=0
+```
+
+**Take down the Kong Prometheus Server**
+```
+kubectl scale deploy/prometheus-server --replicas=0 -n kong-mesh-metrics
+kubectl delete po -n kong-mesh-metrics --force --grace-period=0 -l app=prometheus
+```
+
+Port-forward OpenShift Metric's Prom Service
+```
+kubectl  port-forward svc/prometheus-operated  -n openshift-monitoring 9090 
+```
+Lets check the [alerts](http://localhost:9090/alerts), this may take over a minute to two to reflect the alerts. Alerts go from pending to firing.
+
+also, you can check the alerts by curling them
+```
+curl http://localhost:9090/api/v1/query\?query\=ALERTS | jq 
+```
+
+output
+```
+      {
+        "metric": {
+          "__name__": "ALERTS",
+          "alertname": "KongControlPlaneDown",
+          "alertstate": "firing",
+          "container": "control-plane",
+          "endpoint": "https-main",
+          "job": "kube-state-metrics",
+          "namespace": "kong-mesh-system",
+          "service": "kube-state-metrics",
+          "severity": "critical"
+        },
+        "value": [
+          1651865684.46,
+          "1"
+        ]
+      },
+      {
+        "metric": {
+          "__name__": "ALERTS",
+          "alertname": "KongMetricsDown",
+          "alertstate": "firing",
+          "container": "prometheus-server",
+          "namespace": "kong-mesh-metrics",
+          "severity": "critical"
+        },
+        "value": [
+          1651865684.46,
+          "1"
+        ]
+      },
+```
+
+**Bring up the Kong ControlPlane and Kong Prometheus Server**
+```
+kubectl scale deploy -n kong-mesh-system --replicas=1 --all
+
+kubectl scale deploy/prometheus-server --replicas=1 -n kong-mesh-metrics
+```
+## Create a Grafana Dashboard 
+Since Grafana is now depricated in OCP 4.10, i recommend installing the Grafana Operator for ease of use.
+
+https://access.redhat.com/solutions/6615991
 
 ## Clean up
 
@@ -241,6 +329,7 @@ do `ctrl-f` or whatever you do to search in your browser and search for `kong-fe
 
 ```bash
 kubectl delete servicemonitor -n openshift-monitoring kong-federation 
+kubectl delete prometheusrules -n openshift-monitoring mesh-rules
 kubectl delete mesh default
 oc adm policy remove-scc-from-group nonroot system:serviceaccounts:kong-mesh-metrics
 kumactl install metrics | kubectl delete -f -
@@ -250,4 +339,23 @@ kumactl install metrics | kubectl delete -f -
 
 ```bash
 kumactl install control-plane --cni-enabled --license-path=./license | kubectl delete -f -
+```
+
+
+## Test The Federate Endpoint of Kong Prometheus
+**Ignore** Do not do this block, we are currently getting way too many metrics and need to filter down. This is effectively a DDoS attach on the Kong Prometheus right now until we deduplicate the metrics. You can try it but at your own risk. (To try you need to port-forward the Kong Prometheus to 8888)
+```
+# curl -v -G --data-urlencode 'match[]={job!=""}'  http://localhost:8888/federate
+
+# curl -v -G --data-urlencode 'match[]={job=~".+"}'  http://localhost:8888/federate 
+
+# curl -v -G --data-urlencode 'match[]={job=~"kubernetes-nodes-cadvisor"}'  http://localhost:8888/federate
+
+curl -v -G --data-urlencode 'match[]={job=~"kubernetes-service-endpoints",app_kubernetes_io_instance=~"kong-mesh"}'  http://localhost:8888/federate
+```
+
+**Ignore** this block and do not copy and paste (WIP, more to come)
+```
+# take grafana out of the mesh
+kubectl patch deploy/grafana -n kong-mesh-metrics -p '{"spec": {"template":{"metadata":{"annotations":{"kuma.io/sidecar-injection":"false"}}}} }'
 ```
