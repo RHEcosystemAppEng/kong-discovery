@@ -194,6 +194,11 @@ spec:
       - '{job=~"kuma-dataplanes"}'
       - '{job=~"kubernetes-nodes-cadvisor"}'
     honorLabels: true
+#    metricRelabelings:
+#    - sourceLabels: ["__name__"]
+#      regex: 'workload:(.*)'
+#      targetLabel: "__name__"
+#      action: replace
 EOF
 ```
 
@@ -205,7 +210,7 @@ k logs prometheus-k8s-1  -n openshift-monitoring --since=1m | grep kong-mesh-met
 ```
 
 ## Test The Federate Endpoint of Kong Prometheus
-**Ignore** Do not do this block, we are currently getting way too many metrics and need to filter down. This is effectively a DDoS attach on the Kong Prometheus right now until we filter down the metrics. You can try it but at your own risk. (To try you need to port-forward the Kong Prometheus to 8888)
+**Ignore** Do not do this block, we are currently getting way too many metrics and need to filter down. This is effectively a DDoS attach on the Kong Prometheus right now until we deduplicate the metrics. You can try it but at your own risk. (To try you need to port-forward the Kong Prometheus to 8888)
 ```
 # curl -v -G --data-urlencode 'match[]={job!=""}'  http://localhost:8888/federate
 
@@ -225,7 +230,7 @@ kubectl  port-forward svc/prometheus-operated  -n openshift-monitoring 9090
 
 open [prometheus locally](http://localhost:9090)
 
-Click *Targets* on the top Menu Bar
+Click Status, then *Targets* on the top Menu Bar
 
 do `ctrl-f` or whatever you do to search in your browser and search for `kong-federation`
 
