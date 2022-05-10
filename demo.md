@@ -1,45 +1,64 @@
 - Deployment using helm charts
 - CP/DP with Ingress Controller, DevPortal and RBAC
-
 - Control Plane
 - Create kong project
-```
+
+```bash
 oc new-project kong
 ```
 
-- Create the secrets for license key
-```
-kubectl create secret generic kong-enterprise-license -n kong --from-file=./license
+- Create the secret for license key
+
+```bash
+oc create secret generic kong-enterprise-license -n kong --from-file=license=./license.json
 ```
 
-- Find the Opsnshift project scc uid
-```
-oc describe project kong
+- Find the OpenShift project scc uid
+
+```bash
+oc describe project kong | grep 'scc'
 ```
 
 - Generating Private Key and Digital Certificate
-```
+
+```bash
 openssl req -new -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
   -keyout ./cluster.key -out ./cluster.crt \
   -days 1095 -subj "/CN=kong_clustering"
 
-kubectl create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster.key -n kong
+oc create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster.key -n kong
 ```
 
 - Creating session conf for Kong Manager and Kong DevPortal
-```
+
+```bash
 echo '{"cookie_name":"admin_session","cookie_samesite":"off","secret":"kong","cookie_secure":false,"storage":"kong"}' > admin_gui_session_conf
 echo '{"cookie_name":"portal_session","cookie_samesite":"off","secret":"kong","cookie_secure":false,"storage":"kong"}' > portal_session_conf
-kubectl create secret generic kong-session-config -n kong --from-file=admin_gui_session_conf --from-file=portal_session_conf
+oc create secret generic kong-session-config -n kong --from-file=admin_gui_session_conf --from-file=portal_session_conf
 ```
 
 - Creating Kong Manager password
+
+```bash
+oc create secret generic kong-enterprise-superuser-password -n kong --from-literal=password=kong
 ```
-kubectl create secret generic kong-enterprise-superuser-password -n kong --from-literal=password=kong
+
+- Add Kong charts repository
+
+```bash
+helm repo add kong https://charts.konghq.com
+helm repo update
 ```
 
 - Deploy the chart
-```
+
+Before deploy we need to replace a few parameters.
+
+`postgresql.primary.containerSecurityContext.runAsUser` with value in the range of project SCC UID range.
+
+`postgresql.primary.podSecurityContext.fsGroup` with value in the range of project SCC supplemental groups.
+
+```bash
 helm install kong kong/kong -n kong \
 --set env.database=postgres \
 --set env.password.valueFrom.secretKeyRef.name=kong-enterprise-superuser-password \
@@ -70,11 +89,11 @@ helm install kong kong/kong -n kong \
 --set ingressController.env.enable_reverse_sync=true \
 --set ingressController.env.sync_period="1m" \
 --set postgresql.enabled=true \
---set postgresql.postgresqlUsername=kong \
---set postgresql.postgresqlDatabase=kong \
---set postgresql.postgresqlPassword=kong \
---set postgresql.securityContext.runAsUser=1000710000 \
---set postgresql.securityContext.fsGroup= \
+--set postgresql.auth.username=kong \
+--set postgresql.auth.database=kong \
+--set postgresql.auth.password=kong \
+--set postgresql.primary.containerSecurityContext.runAsUser=<SCC_UID_RANGE> \
+--set postgresql.primary.podSecurityContext.fsGroup=<SCC_SUPPLEMENTAL_GROUPS> \
 --set enterprise.enabled=true \
 --set enterprise.license_secret=kong-enterprise-license \
 --set enterprise.rbac.enabled=true \
@@ -93,42 +112,52 @@ helm install kong kong/kong -n kong \
 --set portalapi.type=NodePort \
 --set secretVolumes[0]=kong-cluster-cert
 ```
+
 or
-```
+
+```bash
 helm install kong kong/kong -n kong \
---set postgresql.securityContext.runAsUser=1000690000 \
---set postgresql.securityContext.fsGroup= \
+--set postgresql.securityContext.runAsUser=<SCC_UID_RANGE> \
+--set postgresql.securityContext.fsGroup=<SCC_SUPPLEMENTAL_GROUPS> \
 -f konnect-cp.yaml
 ```
+
 - Create the routes
-```
-oc expose service kong-kong-admin
-oc expose service kong-kong-manager
-oc expose service kong-kong-portal
-oc expose service kong-kong-portalapi
+
+```bash
+oc expose service kong-kong-admin -n kong
+oc expose service kong-kong-manager -n kong
+oc expose service kong-kong-portal -n kong
+oc expose service kong-kong-portalapi -n kong
 ```
 
 - Checking the Admin API
-```
-http kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com kong-admin-token:kong | jq -r .version
+
+```bash
+export KONG_ADMIN_URL=$(oc get route kong-kong-admin -o jsonpath='{.spec.host}' -n kong)
+http $KONG_ADMIN_URL kong-admin-token:kong | jq -r .version
 ```
 
 - Configuring Kong Manager Service
-```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
+
+```bash
+oc patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"$KONG_ADMIN_URL\" }]}]}}}}"
 ```
 
 - Configuring Kong Dev Portal
+
+```bash
+export KONG_PORTAL_API_URL=$(oc get route kong-kong-portalapi -o jsonpath='{.spec.host}' -n kong)
+oc patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": \"http://$KONG_PORTAL_API_URL\" }]}]}}}}"
+oc patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_GUI_HOST\", \"value\": \"$KONG_PORTAL_API_URL\" }]}]}}}}"
 ```
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_API_URL\", \"value\": \"http://kong-kong-portalapi-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
-kubectl patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PORTAL_GUI_HOST\", \"value\": \"kong-kong-portal-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com\" }]}]}}}}"
-```
+
 - Data Plane
 
-```
+```bash
 oc new-project kong-dp
-kubectl create secret generic kong-enterprise-license -n kong-dp --from-file=./license
-kubectl create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster.key -n kong-dp
+oc create secret generic kong-enterprise-license --from-file=license=./license.json -n kong-dp
+oc create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster.key -n kong-dp
 
 helm install kong-dp kong/kong -n kong-dp \
 --set ingressController.enabled=false \
@@ -153,45 +182,94 @@ helm install kong-dp kong/kong -n kong-dp \
 --set portalapi.enabled=false \
 --set env.status_listen=0.0.0.0:8100 \
 --set secretVolumes[0]=kong-cluster-cert
-
 ```
 
+or
 
-or 
-```
+```bash
 helm install kong-dp kong/kong -n kong-dp -f kong-dp.yaml
 ```
+
 - Checking the Data Plane from the Control Plane
+
+```bash
+http $KONG_ADMIN_URL/clustering/status kong-admin-token:kong
 ```
-http kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com/clustering/status kong-admin-token:kong
-```
+
 - Expose the proxy
-```
-oc expose service kong-dp-kong-proxy
+
+```bash
+oc expose service kong-dp-kong-proxy -n kong-dp
 ```
 
 - Checking the Proxy
+
+```bash
+export KONG_DP_PROXY_URL=$(oc get route kong-dp-kong-proxy -o jsonpath='{.spec.host}' -n kong-dp)
+http $KONG_DP_PROXY_URL
 ```
-http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com
+
+- Deploy sample application
+
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample
+  namespace: default
+  labels:
+    app: sample
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5000
+    name: http
+  selector:
+    app: sample
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample
+  template:
+    metadata:
+      labels:
+        app: sample
+        version: v1
+    spec:
+      containers:
+      - name: sample
+        image: claudioacquaviva/sampleapp
+        ports:
+        - containerPort: 5000
+EOF
 ```
 
 - Defining a Service and a Route
 
-```
-http kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com/services name=sampleservice url='http://sample.default.svc.cluster.local:5000' kong-admin-token:kong
-http kong-kong-admin-kong.apps.mpkongdemo.51ty.p1.openshiftapps.com/services/sampleservice/routes name='httpbinroute' paths:='["/sample"]' kong-admin-token:kong
+```bash
+http $KONG_ADMIN_URL/services name=sampleservice url='http://sample.default.svc.cluster.local:5000' kong-admin-token:kong
+http $KONG_ADMIN_URL/services/sampleservice/routes name='sampleapp' paths:='["/sample"]' kong-admin-token:kong
 ```
 
 - Test the service and route
-```
-http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sample/hello
-while [ 1 ]; do curl kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sample/hello; echo; done
-```
 
+```bash
+http $KONG_DP_PROXY_URL/sample/hello
+while [ 1 ]; do curl $KONG_DP_PROXY_URL/sample/hello; echo; done
+```
 
 - Connecting to external service
-```
-cat <<EOF | kubectl apply -f -
+
+```bash
+cat <<EOF | oc apply -f -
 apiVersion: v1
 kind: Service
 metadata:
@@ -204,8 +282,9 @@ EOF
 ```
 
 - Ingress
-```
-cat <<EOF | kubectl apply -f -
+
+```bash
+cat <<EOF | oc apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -230,23 +309,25 @@ EOF
 ```
 
 - Consume the ingress
-```
-http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/route1/get
+
+```bash
+http $KONG_DP_PROXY_URL/route1/get
 ```
 
-```
-while [ 1 ]; do curl http://kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/route1/get; echo; done
+```bash
+while [ 1 ]; do curl http://$KONG_DP_PROXY_URL/route1/get; echo; done
 ```
 
 - Scaling the deployment
-```
-kubectl scale deployment.v1.apps/kong-dp-kong -n kong-dp --replicas=3
-```
 
+```bash
+oc scale deployment.v1.apps/kong-dp-kong -n kong-dp --replicas=3
+```
 
 - Ingress Controller Policies
-```
-cat <<EOF | kubectl apply -f -
+
+```bash
+cat <<EOF | oc apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -270,10 +351,10 @@ spec:
 EOF
 ```
 
-
 - Create the rate limiting plugin
-```
-cat <<EOF | kubectl apply -f -
+
+```bash
+cat <<EOF | oc apply -f -
 apiVersion: configuration.konghq.com/v1
 kind: KongPlugin
 metadata:
@@ -288,27 +369,33 @@ EOF
 ```
 
 - For deleting the plugin
-```
-kubectl delete kongplugin rl-by-minute
+
+```bash
+oc delete kongplugin rl-by-minute
 ```
 
 - Apply the plugin to Ingress
+
+```bash
+oc patch ingress sampleroute -n default -p '{"metadata":{"annotations":{"konghq.com/plugins":"rl-by-minute"}}}'
 ```
-kubectl patch ingress sampleroute -n default -p '{"metadata":{"annotations":{"konghq.com/plugins":"rl-by-minute"}}}'
-```
+
 - Deleting the annotation
-```
-kubectl annotate ingress sampleroute -n default konghq.com/plugins-
+
+```bash
+oc annotate ingress sampleroute -n default konghq.com/plugins-
 ```
 
 - Test the plugins
-```
-http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sampleroute/hello
+
+```bash
+http $KONG_DP_PROXY_URL/sampleroute/hello
 ```
 
 - Create the API key plugin
-```
-cat <<EOF | kubectl apply -f -
+
+```bash
+cat <<EOF | oc apply -f -
 apiVersion: configuration.konghq.com/v1
 kind: KongPlugin
 metadata:
@@ -320,34 +407,39 @@ EOF
 ```
 
 - Delete the plugin
-```
-kubectl delete kongplugin apikey
+
+```bash
+oc delete kongplugin apikey
 ```
 
 - Apply the plugin to the route
-```
-kubectl patch ingress sampleroute -n default -p '{"metadata":{"annotations":{"konghq.com/plugins":"apikey, rl-by-minute"}}}'
 
+```bash
+oc patch ingress sampleroute -n default -p '{"metadata":{"annotations":{"konghq.com/plugins":"apikey, rl-by-minute"}}}'
 ```
 
 - Test the plugin
-```
-http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sampleroute/hello
+
+```bash
+http $KONG_DP_PROXY_URL/sampleroute/hello
 ```
 
 - Provisioning the key
-```
-kubectl create secret generic consumerapikey -n default --from-literal=kongCredType=key-auth --from-literal=key=kong-secret
+
+```bash
+oc create secret generic consumerapikey -n default --from-literal=kongCredType=key-auth --from-literal=key=kong-secret
 ```
 
 - Deleting the key
-```
-kubectl delete secret consumerapikey -n default
+
+```bash
+oc delete secret consumerapikey -n default
 ```
 
 - Creating a consumer with a key
-```
-cat <<EOF | kubectl apply -f -
+
+```bash
+cat <<EOF | oc apply -f -
 apiVersion: configuration.konghq.com/v1
 kind: KongConsumer
 metadata:
@@ -359,32 +451,32 @@ username: consumer1
 credentials:
 - consumerapikey
 EOF
-
 ```
 
 - Delete the key
-```
-kubectl delete kongconsumer consumer1 -n default
+
+```bash
+oc delete kongconsumer consumer1 -n default
 ```
 
 - Consumer the route with the API key
-```
-http kong-dp-kong-proxy-kong-dp.apps.mpkongdemo.51ty.p1.openshiftapps.com/sampleroute/hello apikey:kong-secret
-```
 
+```bash
+http $KONG_DP_PROXY_URL/sampleroute/hello apikey:kong-secret
+```
 
 - Uninstall all the components
-```
-kubectl delete ingress sampleroute
-kubectl delete ingress route1
-kubectl delete service route1-ext
-kubectl delete pvc --all -n kong --force --grace-period=0 
+
+```bash
+oc delete ingress sampleroute
+oc delete ingress route1
+oc delete service route1-ext
+oc delete pvc --all -n kong --force --grace-period=0 
 
 helm uninstall kong -n kong
 helm uninstall kong-dp -n kong-dp
 
 oc delete project kong
 oc delete project kong-dp
-kubectl delete -f https://bit.ly/kong-ingress-enterprise
-
+oc delete -f https://bit.ly/kong-ingress-enterprise
 ```
