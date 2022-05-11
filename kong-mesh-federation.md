@@ -132,7 +132,7 @@ go to [localhost:8080](http://localhost:8080)
 Take down Redis in the `kong-demo` namespace (for Alert Demo)
 ```bash
 oc scale deploy/redis-master --replicas=0 -n kuma-demo
-oc delete po --force --grace-period=0 -n redis-demo -l app=redis 
+oc delete po --force --grace-period=0 -n kuma-demo -l app=redis 
 ```
 ## Configure Metrics
 
@@ -586,6 +586,10 @@ kumactl install control-plane --cni-enabled --license-path=./license | oc delete
 sleep 3;
 oc delete po,pvc --all -n kong-mesh-system --force --grace-period=0
 ```
+
+# Gotchas
+- in Grafana Dashboards, Prometheus DataSource `uid` must be `Prometheus` with Capital "P". 
+- Make sure you are using the same version of Grafana in the operator as Kong
 
 
 ## Test The Federate Endpoint of Kong Prometheus
