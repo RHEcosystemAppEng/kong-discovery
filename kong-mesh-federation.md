@@ -129,7 +129,7 @@ oc port-forward svc/frontend -n kuma-demo 8080
 
 go to [localhost:8080](http://localhost:8080)
 
-Take down Redis in the `kong-demo` namespace (for Alert Demo)
+Take down Redis in the `kuma-demo` namespace (for Alert Demo)
 ```bash
 oc scale deploy/redis-master --replicas=0 -n kuma-demo
 oc delete po --force --grace-period=0 -n kuma-demo -l app=redis 
@@ -383,7 +383,7 @@ EOF
 
 We want to be alerted when a critical service goes down, so lets test the alert to make sure we will be notified when these incidents occur. To keep this brief, we will only test the `KongDemoCacheDown` rule.
 
-**Take down the the Cache in Kuma Demo**
+**Take down the Cache in Kuma Demo**
 ```bash
 oc scale deploy/redis-master -n kuma-demo --replicas=0
 oc delete pod --force --grace-period=0 -l app=redis -n kuma-demo
@@ -397,7 +397,7 @@ oc port-forward svc/prometheus-operated -n openshift-monitoring 9090
 
 open [Prometheus Alerts](http://localhost:9090/alerts)
 
-**Bring up the Kong ControlPlane and Kong Prometheus Server**
+**Bring up the Cache in Kuma Demor**
 ```bash
 oc scale deploy/redis-master -n kuma-demo --replicas=1
 ```
@@ -573,7 +573,6 @@ oc delete mesh default
 ```bash
 oc delete servicemonitor -n openshift-monitoring kong-federation 
 oc delete prometheusrules -n openshift-monitoring mesh-rules
-oc delete mesh default
 oc adm policy remove-scc-from-group nonroot system:serviceaccounts:kong-mesh-metrics
 kumactl install metrics | oc delete -f -
 oc delete pvc,po --force --grace-period=0 --all -n kong-mesh-metrics
@@ -589,7 +588,6 @@ oc delete po,pvc --all -n kong-mesh-system --force --grace-period=0
 
 # Gotchas
 - in Grafana Dashboards, Prometheus DataSource `uid` must be `Prometheus` with Capital "P". 
-- Make sure you are using the same version of Grafana in the operator as Kong
 
 
 ## Test The Federate Endpoint of Kong Prometheus
