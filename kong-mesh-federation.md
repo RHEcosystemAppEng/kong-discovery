@@ -16,6 +16,7 @@ We will federate the Kong Mesh Prometheus to the OpenShift Prometheus. We will t
 - [Verify you are scraping Metrics](#verify-you-are-scraping-metrics)
 - [Create Prom Rules](#create-prometheusrules)
 - [Create Grafana Dashboards](#create-grafana-dashboards)
+- [Gotchas](#gotchas)
 - [Clean Up](#clean-up)
 - [IGNORE- Test The Federate Endpoint of Kong Prometheus](#test-the-federate-endpoint-of-kong-prometheus)
 ---
@@ -590,23 +591,8 @@ oc delete po,pvc --all -n kong-mesh-system --force --grace-period=0
 - in Grafana Dashboards, Prometheus DataSource `uid` must be `Prometheus` with Capital "P". 
 
 
-## Test The Federate Endpoint of Kong Prometheus
-**Ignore** Do not do this block, we are currently getting way too many metrics and need to filter down. This is effectively a DDoS attack on the Kong Prometheus right now until we deduplicate the metrics. You can try it but at your own risk. (To try you need to port-forward the Kong Prometheus to 8888)
+## Debugging information for Prometheus Federation 
+**Ignore** Do not do this block. This is simply for debugging purposed and ensuring you are federating the correct data. If you are looking to debug federation, you need to first port-forward the Kong Prometheus to 8888.
 ```
-# curl -v -G --data-urlencode 'match[]={job!=""}'  http://localhost:8888/federate
-
-# curl -v -G --data-urlencode 'match[]={job=~".+"}'  http://localhost:8888/federate 
-
-# curl -v -G --data-urlencode 'match[]={job=~"kubernetes-nodes-cadvisor"}'  http://localhost:8888/federate
-
 curl -v -G --data-urlencode 'match[]={job=~"kubernetes-service-endpoints",app_kubernetes_io_instance=~"kong-mesh"}'  http://localhost:8888/federate
 ```
-
-**Ignore** this block and do not copy and paste (WIP, more to come)
-```
-# take grafana out of the mesh
-kubectl patch deploy/grafana -n kong-mesh-metrics -p '{"spec": {"template":{"metadata":{"annotations":{"kuma.io/sidecar-injection":"false"}}}} }'
-```
-
-## Ignore Prometheus Sidecar
-insecure_skip_verify: true
