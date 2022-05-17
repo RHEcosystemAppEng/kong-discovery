@@ -413,7 +413,6 @@ oc apply -f -<<EOF
 apiVersion: v1
 kind: Namespace
 metadata:
-  creationTimestamp: null
   name: grafana
 spec: {}
 status: {}
