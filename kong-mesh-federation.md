@@ -403,7 +403,7 @@ open [Prometheus Alerts](http://localhost:9090/alerts)
 oc scale deploy/redis-master -n kuma-demo --replicas=1
 ```
 ## Create Grafana Dashboards
-Since Grafana is now depricated in OCP 4.10, we are using the Grafana Operator for ease of use and configuration.
+Since Grafana is now deprecated in OCP 4.10, we are using the Grafana Operator for ease of use and configuration.
 
 https://access.redhat.com/solutions/6615991
 
