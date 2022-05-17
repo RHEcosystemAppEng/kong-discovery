@@ -584,6 +584,12 @@ oc delete pvc,po --force --grace-period=0 --all -n kong-mesh-metrics
 kumactl install control-plane --cni-enabled --license-path=./license | oc delete -f -
 sleep 3;
 oc delete po,pvc --all -n kong-mesh-system --force --grace-period=0
+sleep 3;
+oc delete clusterrolebinding cluster-monitoring-view   
+oc delete clusterrolebinding kong-prom-binding
+oc delete clusterrole kong-prom 
+
+oc delete ns grafana
 ```
 
 # Gotchas
