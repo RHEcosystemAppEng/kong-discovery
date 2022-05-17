@@ -302,7 +302,7 @@ oc port-forward svc/prometheus-operated -n openshift-monitoring 9090
 
 open [Prometheus Targets](http://localhost:9090/targets)
 
-do `ctrl-f` or whatever you do to search in your browser and search for `kong-federation`. May take about 30 seconds or so.
+do `ctrl-f` or whatever you do to search in your browser and search for `kong-federation`. May take about 30 seconds to become healthy.
 
 ## Create PrometheusRules
 Prom rules alert us when things go wrong/down. The simplest and most important prometheus rules that you can have are rules that trigger alerts when services go down and stay down. We are going to define just a few rules:  
