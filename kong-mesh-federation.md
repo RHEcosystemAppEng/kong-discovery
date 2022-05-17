@@ -133,7 +133,6 @@ go to [localhost:8080](http://localhost:8080)
 Take down Redis in the `kuma-demo` namespace (for Alert Demo)
 ```bash
 oc scale deploy/redis-master --replicas=0 -n kuma-demo
-oc delete po --force --grace-period=0 -n kuma-demo -l app=redis 
 ```
 ## Configure Metrics
 
@@ -156,6 +155,14 @@ Install metrics
 oc scale deploy/grafana -n kong-mesh-metrics --replicas=0
 ```
 
+In the event that you still want Kong's Grafana instance, we can patch the image on the Kong Deployment that bundles the dashboards to avoid the error.
+```
+oc scale deploy/grafana -n kong-mesh-metrics --replicas=1
+
+oc patch deployment -n kong-mesh-metrics grafana -p='[{"op": "remove", "path": "/spec/template/spec/initContainers"}]' --type=json
+
+oc patch deployment -n kong-mesh-metrics grafana -p "{\"spec\": { \"template\": {\"spec\": {\"containers\": [{\"name\": \"grafana\", \"image\": \"quay.io/ruben/grafana:8.3.3-kong\"}]}}}}"
+```
 
 Configure the metrics in the existing mesh
 
@@ -289,7 +296,7 @@ EOF
 
 Make sure OCP Prom logs are clean
 ```bash
-oc logs prometheus-k8s-1  -n openshift-monitoring --since=1m | grep kong-mesh-metrics
+oc logs prometheus-k8s-1  -n openshift-monitoring --since=1m -c prometheus | grep kong-mesh-metrics
 ```
 
 ## Verify you are scraping Metrics
@@ -384,10 +391,9 @@ EOF
 
 We want to be alerted when a critical service goes down, so lets test the alert to make sure we will be notified when these incidents occur. To keep this brief, we will only test the `KongDemoCacheDown` rule.
 
-**Take down the Cache in Kuma Demo**
+**Take down the Cache in Kuma Demo (this should have already been done in a previous step)**
 ```bash
 oc scale deploy/redis-master -n kuma-demo --replicas=0
-oc delete pod --force --grace-period=0 -l app=redis -n kuma-demo
 ```
 
 **Check the Alerts in the OpenShift Prometheus**
@@ -398,7 +404,28 @@ oc port-forward svc/prometheus-operated -n openshift-monitoring 9090
 
 open [Prometheus Alerts](http://localhost:9090/alerts)
 
-**Bring up the Cache in Kuma Demor**
+you can also get the alerts directly from the API:
+```bash
+http localhost:9090/api/v1/alerts | jq '.data.alerts | .[] | select(.labels.alertname | contains("KongDemoCacheDown"))'
+```
+output
+```
+{
+  "labels": {
+    "alertname": "KongDemoCacheDown",
+    "severity": "critical"
+  },
+  "annotations": {
+    "description": "Demo Cache pod has not been ready the defined time period.",
+    "summary": "Demo Cache is down."
+  },
+  "state": "firing",
+  "activeAt": "2022-05-17T14:31:00.456457993Z",
+  "value": "1e+00"
+}
+```
+
+**Bring up the Cache in Kuma Demo**
 ```bash
 oc scale deploy/redis-master -n kuma-demo --replicas=1
 ```
