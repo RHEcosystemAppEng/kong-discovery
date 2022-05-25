@@ -158,7 +158,7 @@ oc get clusteroperators
 NOTES:
 Check with [product life](https://access.redhat.com/support/policy/updates/errata/) cycle if we can use RHEL 8 or RHEL 9
 
-Create a new Red Hat Enterprise Linux 7 VM Instance and assign tag `kong-konnect-cp` to VM instance.
+Create a new Red Hat Enterprise Linux 7 VM Instance with assigned tag `kong-konnect-cp`.
 
 ```bash
 export GCP_VM_NAME=kong-konnect-cp
