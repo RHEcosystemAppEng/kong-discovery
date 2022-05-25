@@ -35,7 +35,51 @@
   - [Data plane route test](#data-plane-route-test)
   - [Deleting Kong Konnect Data Plane](#deleting-kong-konnect-data-plane)
   - [Scaling the Deployment](#scaling-the-deployment)
-- [ANOTHER SECTION WILL ADD LATER](#another-section-will-add-later)
+- [Keycloak](#keycloak)
+  - [Create a Project](#create-a-project)
+  - [Installing Keycloak](#installing-keycloak)
+  - [Keycloak configuration](#keycloak-configuration)
+    - [Realm definition](#realm-definition)
+    - [Client_Id/Client_Secret definition](#client_idclient_secret-definition)
+    - [User creation](#user-creation)
+  - [OpenId Connect (OIDC) plugin and Keycloak](#openid-connect-oidc-plugin-and-keycloak)
+  - [Authorization Code](#authorization-code)
+  - [Client Credentials](#client-credentials)
+- [Redis](#redis)
+  - [Create Redis Project](#create-redis-project)
+  - [Installing Redis](#installing-redis)
+  - [Checking Redis installation](#checking-redis-installation)
+  - [Create a Service and Route](#create-a-service-and-route)
+  - [Configure caching plugin](#configure-caching-plugin)
+  - [Check caching configuration](#check-caching-configuration)
+- [Elasticsearch, Kibana and Logstash](#elasticsearch-kibana-and-logstash)
+  - [Elasticsearch](#elasticsearch)
+    - [Install Elasticsearch](#install-elasticsearch)
+    - [Configure permissions for service account](#configure-permissions-for-service-account)
+    - [Install Helm chart](#install-helm-chart)
+  - [Logstash](#logstash)
+    - [Configure Logstash chart](#configure-logstash-chart)
+    - [Install Logstash](#install-logstash)
+  - [Kibana](#kibana)
+    - [Install Kibana](#install-kibana)
+  - [Checking ELK installation](#checking-elk-installation)
+  - [Setting the TCP-Log Plugin](#setting-the-tcp-log-plugin)
+    - [Apply the TCP-Log plugin](#apply-the-tcp-log-plugin)
+    - [Apply TCP Log-plugin to the Ingress](#apply-tcp-log-plugin-to-the-ingress)
+    - [Deleting Ingress annotation](#deleting-ingress-annotation)
+- [Red Hat Fuse](#red-hat-fuse)
+  - [Web Service App](#web-service-app)
+  - [JDK 1.8](#jdk-18)
+    - [Install AdoptOpenJDK](#install-adoptopenjdk)
+    - [Maven](#maven)
+    - [Build](#build)
+    - [Checking Swagger UI](#checking-swagger-ui)
+    - [Create service and route](#create-service-and-route)
+    - [Enabling caching](#enabling-caching)
+- [CXF ("Celtix" and "XFire")](#cxf-celtix-and-xfire)
+- [GitHub & GitHub Actions](#github--github-actions)
+  - [Create a new Repo](#create-a-new-repo)
+  - [git push -u origin main](#git-push--u-origin-main)
 
 # Kong Konnect Enterprise Hybrid Mode
 
@@ -48,6 +92,8 @@ Please, refer to the following link to read more about the Hybrid deployment: <h
 ## Reference Architecture
 
 Here's a Reference Architecture implemented with Red Hat products and services:
+
+![Kong Konnect Enterprise Hybrid Mode](images/ref-arch-01.png)
 
 The Control Plane runs as a Docker container on an RHEL instance.
 The Data Plane runs on an OpenShift Cluster.
@@ -742,4 +788,1047 @@ konnect-dp-kong-5cf4696db7-kv6gd   1/1     Running   0          4m26s
 konnect-dp-kong-5cf4696db7-pffrc   1/1     Running   0          37m
 ```
 
-# ANOTHER SECTION WILL ADD LATER
+# Keycloak
+
+<https://www.keycloak.org/getting-started/getting-started-openshift>
+
+## Create a Project
+
+```bash
+oc new-project keycloak
+```
+
+## Installing Keycloak
+
+```bash
+oc process -f https://raw.githubusercontent.com/keycloak/keycloak-quickstarts/latest/openshift-examples/keycloak.yaml \
+    -p KEYCLOAK_ADMIN=admin \
+    -p KEYCLOAK_ADMIN_PASSWORD=keycloak \
+    -p NAMESPACE=keycloak \
+| oc create -f -
+```
+
+Checking the installation
+
+```bash
+oc get pod -n keycloak
+```
+
+Output:
+
+```bash
+NAME                READY   STATUS    RESTARTS   AGE
+keycloak-1-deploy   1/1     Running   0          37s
+keycloak-1-wwmlm    0/1     Running   0          31s
+```
+
+```bash
+oc get service -n keycloak
+```
+
+Output:
+
+```bash
+NAME       TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+keycloak   ClusterIP   172.30.86.124   <none>        8443/TCP   19s
+```
+
+```bash
+oc get route -n keycloak
+```
+
+Output:
+
+```bash
+NAME       HOST/PORT                                                PATH   SERVICES   PORT    TERMINATION   WILDCARD
+keycloak   keycloak-keycloak.apps.kongcluster1.kong-acquaviva.com          keycloak   <all>   passthrough   None
+```
+
+Open browser with Keycloak route URL.
+
+Click on `Administration Console`. Use your credentials `admin` and `keycloak` to login.
+
+## Keycloak configuration
+
+Before configuring Kong Konnect Enterprise to work together with Keycloak, let's define a `Client Id`.
+
+### Realm definition
+
+Passing the mouse over `Master` we can create a new realm. Create a realm called `kong`.
+
+### Client_Id/Client_Secret definition
+
+Clicking on `Clients` and `Create` we can define a new client representing Kong. This `client` is used in the OAuth grants implemented by the user authentication processes.
+Choose `kong_id` for the new client. The configurations are below:
+
+- `Access Type`: `confidential`
+- `Service Accounts enabled`: `on` (this allows us to implement the OAuth Client Credentials Grant)
+- `Valid Redirect URIs`: `http://$KONG_DP_URL/oidcroute/get`
+
+This parameter is needed in the OAuth Authorization Code Grant. Notice we're using our Data Plane public IP.
+Click on `Save`. The `Credentials` option is shown in the horizontal menu.
+
+Click on `Credentials` and take note of the `client_secret`.
+
+```bash
+export KEYCLOAK_CLIENT_SECRET=<OUT_VALUE_HERE>
+```
+
+### User creation
+
+Clicking on `Users` and `Add User` we can define the user. This user is used in the OAuth grants implemented by the user authentication processes.
+Choose `kong_user` for the `Username` and click on `Save`.
+
+Click on `Credentials`. Type `kong` for both `New Password` and `Password Confirmation` fields. Turn `Temporary` to `Off` and click on `Set Password`.
+
+## OpenId Connect (OIDC) plugin and Keycloak
+
+Reference Architecture
+
+![OIDC Reference Architecture](images/ref-arch-oidc.png)
+
+We're going to apply the OIDC plugin to protect a specific route (`/oidcroute`) with the Authorization Code Grant. That is, when the user tries to consume the route he is redirected to Keycloak login page in order to get authenticated. With a successful authentication and a token, the user is redirected back to the original endpoint that includes the route and then Kong allows the route consumption.
+
+## Authorization Code
+
+Go to Konnect Control Plane and create a Kong Service, Route and apply the OIDC plugin
+
+```bash
+http $KONG_CP_URL:8001/services name=oidcservice url='http://httpbin.org'
+http $KONG_CP_URL:8001/services/oidcservice/routes name='oidcroute' paths:='["/oidcroute"]'
+```
+
+The Route can be consumed since it doesn't have the plugin enabled.
+
+```bash
+http $KONG_DP_URL/oidcroute/get
+```
+
+Output:
+
+```bash
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Origin: *
+Connection: keep-alive
+Content-Length: 437
+Content-Type: application/json
+Date: Tue, 13 Apr 2021 22:00:52 GMT
+Server: gunicorn/19.9.0
+Via: kong/2.3.3.0-enterprise-edition
+X-Kong-Proxy-Latency: 14
+X-Kong-Upstream-Latency: 137
+
+{
+    "args": {},
+    "headers": {
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate",
+        "Host": "httpbin.org",
+        "User-Agent": "HTTPie/2.4.0",
+        "X-Amzn-Trace-Id": "Root=1-60761494-3832a06e12d82a0c74d147fa",
+        "X-Forwarded-Host": "35.236.127.239",
+        "X-Forwarded-Path": "/oidcroute/get",
+        "X-Forwarded-Prefix": "/oidcroute"
+    },
+    "origin": "10.128.2.1, 34.94.145.16",
+    "url": "http://35.236.127.239/get"
+}
+```
+
+Get Keycloak's issuer clicking on `OpenID Endpoint Configuration` link of the new Realm.
+
+Apply the plugin
+
+Replace `client_secret` and `issuer` with `KEYCLOAK_CLIENT_SECRET` and Keycloak route URL.
+
+```bash
+http $KONG_CP_URL:8001/routes/oidcroute/plugins name=openid-connect config:='{"client_id": ["kong_id"], "client_secret": ["2e7c9d11-9076-4389-b070-e10cea7dc8fe"], "issuer": "https://keycloak-keycloak.apps.kongcluster1.kong-acquaviva.com/auth/realms/kong", "cache_ttl": 10 }'
+```
+
+Redirect your browser to the Data Plane to consume the Route <http://$KONG_DP_URL/oidcroute/get>
+
+After accepting the Server Certificate, since you haven't been authenticated, you will be redirected to Keycloak's Authentication page.
+
+Enter with the previously created credentials, `kong_user` and `kong` and click on `Sign In`. After getting authenticated, Keycloak will issue a Token and redirect you back to the original URL. Since you have the Token, the Gateway will allow you to consume the URL.
+
+You can check the Token with <https://jwt.io>
+
+## Client Credentials
+
+Create another Kong Service and Route and apply the plugin again
+
+```bash
+http $KONG_CP_URL:8001/services name=oidcservice2 url='http://httpbin.org'
+http $KONG_CP_URL:8001/services/oidcservice2/routes name='oidcroute2' paths:='["/oidcroute2"]'
+http $KONG_CP_URL:8001/routes/oidcroute2/plugins name=openid-connect config:='{"client_id": ["kong_id"], "client_secret": 
+["2e7c9d11-9076-4389-b070-e10cea7dc8fe"], "issuer": "https://keycloak-keycloak.apps.kongcluster1.kong-acquaviva.com/auth/realms/kong", "cache_ttl": 10 }'
+```
+
+Consume the Route with `client_id` and `client_secret`
+
+```bash
+http $KONG_DP_URL/oidcroute2/get -a kong_id:<CLIENT_SECRET>
+```
+
+Output:
+
+```bash
+HTTP/1.1 200 OK
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Origin: *
+Connection: keep-alive
+Content-Length: 1741
+Content-Type: application/json
+Date: Tue, 13 Apr 2021 22:35:46 GMT
+Server: gunicorn/19.9.0
+Set-Cookie: session=cyFP3ZI_mmKCprpp5WAk-w|1618356946|8xR_lGIcBZNaqMszvUu1ILnxtOTUk; Path=/; SameSite=Lax; HttpOnly
+Via: kong/2.3.3.0-enterprise-edition
+X-Kong-Proxy-Latency: 83
+X-Kong-Upstream-Latency: 137
+
+{
+    "args": {},
+    "headers": {
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate",
+        "Authorization": "Bearer eyJhbGciOiJSUzI1NiIsInR0yK89og",
+        "Host": "httpbin.org",
+        "User-Agent": "HTTPie/2.4.0",
+        "X-Amzn-Trace-Id": "Root=1-60761cc2-4576723a7d8e90e1300e54c8",
+        "X-Forwarded-Host": "35.236.127.239",
+        "X-Forwarded-Path": "/oidcroute2/get",
+        "X-Forwarded-Prefix": "/oidcroute2"
+    },
+    "origin": "10.129.2.1, 34.94.145.16",
+    "url": "http://35.236.127.239/get"
+}
+```
+
+If you provide wrong credentials you get an error:
+
+```bash
+http http://$KONG_DP_URL/oidcroute2/get -a kong_id:2e7c9d11-9076-4389-b070-e10cea7dc8feasdadasda
+```
+
+Output:
+
+```bash
+HTTP/1.1 401 Unauthorized
+Connection: keep-alive
+Content-Length: 26
+Content-Type: application/json; charset=utf-8
+Date: Thu, 15 Apr 2021 22:45:05 GMT
+Server: kong/2.3.3.0-enterprise-edition
+WWW-Authenticate: Bearer realm="keycloak-keycloak.apps.kongcluster1.kong-acquaviva.com"
+X-Kong-Response-Latency: 16
+
+{
+    "message": "Unauthorized"
+}
+```
+
+# Redis
+
+## Create Redis Project
+
+```bash
+oc new-project redis
+```
+
+## Installing Redis
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: redis
+  labels:
+    app: redis
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis
+        ports:
+        - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: redis
+  labels:
+    app: redis
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: redis
+EOF
+```
+
+## Checking Redis installation
+
+```bash
+oc get pod
+```
+
+Output:
+
+```bash
+NAME                    READY   STATUS    RESTARTS   AGE
+redis-fd794cd65-mqxlb   1/1     Running   0          46s
+```
+
+```bash
+oc get service
+```
+
+Output:
+
+```bash
+NAME    TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+redis   ClusterIP   172.30.114.146   <none>        6379/TCP   56s
+```
+
+## Create a Service and Route
+
+```bash
+http $KONG_CP_URL:8001/services name=cachingservice url='http://httpbin.org'
+http $KONG_CP_URL:8001/services/cachingservice/routes name='cachingroute' paths:='["/cache"]'
+```
+
+## Configure caching plugin
+
+```bash
+curl -X POST http://$KONG_CP_URL:8001/routes/cachingroute/plugins --data "name=proxy-cache-advanced"  --data "config.cache_ttl=30" --data "config.strategy=redis" --data "config.redis.host=redis.redis.svc.cluster.local" --data "config.redis.port=6379"
+```
+
+## Check caching configuration
+
+```bash
+http $KONG_DP_URL/cache/get
+```
+
+# Elasticsearch, Kibana and Logstash
+
+NOTES: Should we suggest to use native OCP Operator fit that?
+
+https://github.com/elastic/helm-charts
+
+From the Monitoring and Log Processing perspective, it's important to integrate Kong Konnect Enterprise with a best-of-breed product to externalize all information related to processed requests and allow users to define dashboard, alerts, reports, etc.
+
+This part of the tutorial shows how to configure the real-time integration between Kong Enterprise and Elastic products: Elasticsearch, Kibana and Logstash.
+
+## Elasticsearch
+
+### Install Elasticsearch
+
+```bash
+oc new-project elk
+oc describe project elk
+```
+
+Output:
+
+```yaml
+Name: elk
+Created: About an hour ago
+Labels: <none>
+Annotations: openshift.io/description=
+  openshift.io/display-name=
+  openshift.io/requester=kube:admin
+  openshift.io/sa.scc.mcs=s0:c26,c5
+  openshift.io/sa.scc.supplemental-groups=1000660000/10000
+  openshift.io/sa.scc.uid-range=1000660000/10000
+Display Name: <none>
+Description: <none>
+Status: Active
+Node Selector: <none>
+Quota: <none>
+Resource limits: <none>
+```
+
+### Configure permissions for service account
+
+```bash
+oc adm policy add-scc-to-user anyuid system:serviceaccount:elk:default
+oc adm policy add-role-to-user admin default -n kong
+oc adm policy add-cluster-role-to-user cluster-admin default
+```
+
+### Install Helm chart
+
+```bash
+helm repo add elastic https://helm.elastic.co
+```
+
+1. Replace `securityContext.runAsUser=null` and `podSecurityContext.runAsUser=null` with `openshift.io/sa.scc.uid-range` value
+2. Replace `podSecurityContext.fsGroup=null` with `openshift.io/sa.scc.supplemental-groups value`
+
+```bash
+helm install elk elastic/elasticsearch -n elk \
+--set replicas=1 \
+--set minimumMasterNodes=1 \
+--set securityContext.runAsUser=null \
+--set securityContext.runAsNonRoot=true \
+--set podSecurityContext.runAsUser=null \
+--set podSecurityContext.fsGroup=null \
+--set sysctlInitContainer.enabled=false
+```
+
+## Logstash
+
+### Configure Logstash chart
+
+Fetch the chart and update `logstash-values.yaml` file
+
+```bash
+helm fetch elastic/logstash
+tar xvfk logstash*
+cd logstash
+cp values.yaml logstash-values.yaml
+```
+
+Update `logstashPipeline` with
+
+```yaml
+logstashPipeline:
+  logstash.conf: |
+    input {
+      tcp {
+        port => 5044
+        codec => "json"
+      }
+    }
+    output {
+      elasticsearch {
+        hosts => ["http://elasticsearch-master.elk.svc.cluster.local:9200"]
+        index => "kong"
+      }
+    }
+```
+
+Update `service` field with
+
+```yaml
+service:
+  annotations:
+  type: ClusterIP
+  ports:
+    - name: logstash
+      port: 5044
+      protocol: TCP
+      targetPort: 5044
+```
+
+### Install Logstash
+
+```bash
+helm install logstash elastic/logstash -n elk -f logstash-values.yaml
+```
+
+## Kibana
+
+### Install Kibana
+
+```bash
+helm install kibana elastic/kibana -n elk --set service.type=LoadBalancer
+```
+
+## Checking ELK installation
+
+```bash
+oc get pod -n elk
+```
+
+Output:
+
+```bash
+NAMESPACE     NAME                                   READY   STATUS      RESTARTS   AGE
+elk           elasticsearch-master-0                 1/1     Running     0          3h38m
+elk           kibana-kibana-54c46c54d6-dbbgm         1/1     Running     0          120m
+elk           logstash-logstash-0                    1/1     Running     0          16m
+```
+
+```bash
+oc get service --all-namespaces
+```
+
+Output
+
+```bash
+elk           elasticsearch-master            ClusterIP      10.100.214.23    <none>                                                                       9200/TCP,9300/TCP               3h38m
+elk           elasticsearch-master-headless   ClusterIP      None             <none>                                                                       9200/TCP,9300/TCP               3h38m
+elk           kibana-kibana                   LoadBalancer   10.100.211.208   ac074ff862ed646f183f0477f92911dd-1990565081.eu-central-1.elb.amazonaws.com   5601:30493/TCP                  121m
+elk           logstash-logstash               ClusterIP      10.100.221.114   <none>                                                                       5044/TCP                        16m
+elk           logstash-logstash-headless      ClusterIP      None             <none>                                                                       9600/TCP                        16m
+```
+
+## Setting the TCP-Log Plugin
+
+The externalization of all processed requests data to ELK is done by a TCP stream defined through the `TCP-Log` plugin.
+
+### Apply the TCP-Log plugin
+
+NOTES: Why namespace is `default`?
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: tcp-log
+  namespace: default
+config:
+  host: logstash-logstash.elk.svc.cluster.local
+  port: 5044
+plugin: tcp-log
+EOF
+```
+
+### Apply TCP Log-plugin to the Ingress
+
+NOTES: We didn't create Ingress before. How should it work?
+
+```bash
+oc patch ingress route1 -p '{"metadata":{"annotations":{"konghq.com/plugins":"tcp-log"}}}'
+```
+
+### Deleting Ingress annotation
+
+In case you want to disapply the plugin to the ingress run:
+
+```bash
+oc annotate ingress route1 konghq.com/plugins-
+```
+
+# Red Hat Fuse
+https://spring.io/projects/spring-boot
+https://spring.io/guides/gs/spring-boot/
+https://docs.spring.io/spring-boot/docs/current/maven-plugin/reference/htmlsingle/
+https://camel.apache.org/camel-spring-boot/latest/index.html
+https://developers.redhat.com/products/fuse
+https://developers.redhat.com/products/fuse/getting-started
+https://access.redhat.com/documentation/en-us/red_hat_fuse/7.7/html/fuse_on_openshift_guide/index
+https://github.com/AdoptOpenJDK/homebrew-openjdk
+
+## Web Service App
+
+```bash
+curl --location --request POST 'https://www.dataaccess.com/webservicesserver/numberconversion.wso' --header 'Content-Type: text/xml; charset=utf-8' --data-raw '<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+    <soap:Body>
+        <NumberToWords xmlns="http://www.dataaccess.com/webservicesserver/">
+            <ubiNum>111</ubiNum>
+        </NumberToWords>
+    </soap:Body>
+</soap:Envelope>'
+```
+
+Output:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <m:NumberToWordsResponse xmlns:m="http://www.dataaccess.com/webservicesserver/">
+      <m:NumberToWordsResult>one hundred and eleven </m:NumberToWordsResult>
+    </m:NumberToWordsResponse>
+  </soap:Body>
+```
+
+## JDK 1.8
+
+### Install AdoptOpenJDK
+
+NOTES: AdoptOpenJDK is no longer supported and it is recommended that all users move to Eclipse Temurin
+
+https://adoptopenjdk.net/
+
+```bash
+jdk -version
+```
+
+Output:
+
+```bash
+openjdk version "1.8.0_292"
+OpenJDK Runtime Environment (AdoptOpenJDK)(build 1.8.0_292-b10)
+OpenJDK 64-Bit Server VM (AdoptOpenJDK)(build 25.292-b10, mixed mode)
+```
+
+### Maven
+
+[Reference](https://maven.apache.org/install.html)
+
+```bash
+mvn --version
+```
+
+### Build
+
+```bash
+mvn spring-boot:run
+```
+
+```bash
+http :8080/camel/numbertowords/737373
+```
+
+Output:
+
+```bash
+HTTP/1.1 200 OK
+Access-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers
+Access-Control-Allow-Methods: GET, HEAD, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH
+Access-Control-Allow-Origin: *
+Access-Control-Max-Age: 3600
+Connection: keep-alive
+Content-Type: application/json
+Date: Mon, 07 Jun 2021 12:39:57 GMT
+Transfer-Encoding: chunked
+
+{
+    "item": "seven hundred and thirty seven thousand three hundred and seventy three "
+}
+```
+
+### Checking Swagger UI
+
+Replace domain with necessary value.
+
+http://rest-soap-transformation-fuse-soap-rest-proxy.apps.kongcluster1.kong-acquaviva.com/swagger-ui.html
+
+```bash
+http rest-soap-transformation-fuse-soap-rest-proxy.apps.kongcluster1.kong-acquaviva.com/camel/numbertowords/333
+```
+
+Output:
+
+```bash
+HTTP/1.1 200 OK
+Access-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers
+Access-Control-Allow-Methods: GET, HEAD, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH
+Access-Control-Allow-Origin: *
+Access-Control-Max-Age: 3600
+Cache-control: private
+Content-Type: application/json
+Date: Sat, 10 Jul 2021 21:12:15 GMT
+Set-Cookie: 0298612c85935bcab043c7486d01e8d0=d721ed0aa9c92d823c6dee57a693866b; path=/; HttpOnly
+Transfer-Encoding: chunked
+
+{
+    "item": "three hundred and thirty three "
+}
+```
+
+### Create service and route
+
+Replace domain with necessary value.
+
+```bash
+http $KONG_CP_URL:8001/services name=rest-soap-service url='http://rest-soap-transformation-fuse-soap-rest-proxy.apps.kongcluster1.kong-acquaviva.com/camel/numbertowords'
+
+http $KONG_CP_URL:8001/services/rest-soap-service/routes name='rest-soap-route' paths:='["/numbertowords"]'
+```
+
+### Enabling caching
+
+```bash
+curl -X POST http://$KONG_CP_URL:8001/routes/cachingroute/plugins --data "name=proxy-cache-advanced"  --data "config.cache_ttl=30" --data "config.strategy=redis" --data "config.redis.host=redis.redis.svc.cluster.local" --data "config.redis.port=6379"
+```
+
+# CXF ("Celtix" and "XFire")
+
+https://github.com/apache/cxf
+https://cxf.apache.org/
+https://maven.apache.org/
+https://mvnrepository.com/
+https://search.maven.org/
+https://documenter.getpostman.com/view/8854915/Szf26WHn
+https://github.com/sigreen/rest-soap-transformation
+https://github.com/sigreen/weather-station-apis
+https://www.youtube.com/watch?v=TLOLWMeobuU
+https://restlet.talend.com/
+https://www.dataaccess.com/webservicesserver/numberconversion.wso
+https://www.dataaccess.com/webservicesserver/numberconversion.wso?op=NumberToWords
+https://www.dataaccess.com/webservicesserver/numberconversion.wso?WSDL
+
+```bash
+mvn -s configuration/settings.xml spring-boot:run -Dspring.profiles.active=dev 
+```
+
+# GitHub & GitHub Actions
+
+SSH Keys
+https://docs.github.com/en/github/authenticating-to-github/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+
+```bash
+ssh-keygen -t rsa -b 4096 -C "<EMAIL>"
+```
+
+```bash
+cd $HOME/.ssh
+vi config
+```
+
+Add the following lines
+
+```bash
+Host *
+  AddKeysToAgent yes
+  UseKeychain yes
+  IdentityFile ~/.ssh/id_rsa
+```
+
+```bash
+ssh-add -K ~/.ssh/id_rsa
+```
+
+Copy and paste public key in GitHub page and test the connection with GitHub
+
+```bash
+ssh -T git@github.com
+```
+
+https://konghq.com/blog/gitops-for-kong-managing-kong-declaratively-with-deck-and-github-actions/
+
+https://docs.github.com/en/actions/hosting-your-own-runners/about-self-hosted-runners
+
+
+## Create a new Repo
+
+```bash
+mkdir githubactions
+mkdir runner
+cd githubactions
+mkdir github
+chmod -R 777 github
+cd github
+git init
+```
+
+Add remote repo (replace remote name and remote URL)
+
+```bash
+git remote add origin git@github.com:cacquaviva/cicd.git
+```
+
+Checl remote connection to GitHub API
+
+```bash
+curl -u <TOKEN> https://api.github.com/user/repos -d '{"name":"cicd"}'
+```
+
+/*
+echo "# kong-cicd" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin git@github.com:cacquaviva/cicd.git
+
+//curl -u USERNAME:PASSWORD https://api.github.com/user/repos -d '{"name":"cicd"}'
+curl -u dab1f2c1c80bf1d4a813aa0fd2cfed5905d5ac2b https://api.github.com/user/repos -d '{"name":"cicd"}'
+
+//git remote add origin git@github.com:cacquaviva/cicd
+
+git push -u origin main
+*/
+
+
+Configure Insomnia
+Create a new Design Document "OpenShift"
+
+https://github.com/CAcquaviva/cicd.git
+cacquaviva
+dab1f2c1c80bf1d4a813aa0fd2cfed5905d5ac2b
+
+Create a new main branch
+Commit and Push from Insomnia
+
+
+Update local repo
+git remote add origin git@github.com:cacquaviva/cicd.git
+git pull origin main
+
+echo "# kong-cicd" >> README.md
+
+git add README.md
+
+git commit -m "first commit"
+git branch -M main
+
+git push -u origin main
+
+
+Include OpenAPI Spec
+Go back to Insomnia and Pull. Include the following Spec. Commit it and push it.
+
+openapi: 3.0.2
+info:
+  version: '1.0'
+  title: httpbin-simplest
+  license:
+    name: Apache 2.0
+  description: 'The simplest HTTP Request & Response Service.'
+  contact:
+    name: Kong
+servers:
+  - url: 'http://httpbin.org'
+    description: kongenterprise
+paths:
+  '/get':
+    get:
+      summary: Get HTTPbin
+      tags:
+        - get
+      responses:
+        '200':
+          description: The request's query parameters.
+          content:
+            application/json
+      description: "HTTPbin request"
+
+
+
+
+Include OIDC settings:
+
+openapi: 3.0.2
+info:
+  version: '1.0'
+  title: httpbin-simplest
+  license:
+    name: Apache 2.0
+  description: 'The simplest HTTP Request & Response Service.'
+  contact:
+    name: Kong
+servers:
+  - url: 'http://httpbin.org'
+    description: kongenterprise
+paths:
+  '/get':
+    get:
+      summary: Get HTTPbin
+      tags:
+        - get
+      x-kong-plugin-openid-connect:
+        enabled: true
+        config:
+          issuer: https://keycloak-keycloak.apps.kongcluster1.kong-acquaviva.com/auth/realms/kong
+          cache_ttl: 10
+      responses:
+        '200':
+          description: The request's query parameters.
+          content:
+            application/json
+      description: "HTTPbin request"
+
+
+
+
+
+
+------------
+git pull origin main -q
+
+git add .
+git commit -m "first commit"
+git push -u origin main
+------------
+
+
+
+GitHub Actions
+action.yaml, which states the basic definition of the action, including the base image it relies on and the parameters to run:
+
+.github/actions/action.yaml
+
+name: 'Kong OpenAPI Deployment'
+description: 'Generates Kong configuration from OpenAPI specification and deploys it.'
+inputs:
+  openapi-spec:  # id of input
+    description: 'OpenAPI specification file'
+    required: false
+    default: 'httpbin.yaml'
+  openapi-spec-format:
+    description: 'valid values are YAML or JSON'
+    required: false
+    default: 'YAML'
+  kong-config-type:
+    description: 'The type of Kong configuration to generate'
+    required: false
+    default: 'kong-for-kubernetes'
+  k8s-namespace:
+    description: 'Kubernetes namespace to deploy into'
+    required: false
+    default: 'kong'
+  uid:
+    description: 'System user id that will run processes'
+    required: false
+    default: 502
+  gid:
+    description: 'System group id that will run processes'
+    required: false
+    default: 20
+  external-service:
+    description: 'Name of external service to be created. Do not create one if this input is missing'
+    required: false
+  external-service-host:
+    description: 'Host of external service to be created. Required is external-service is used.'
+    required: false
+outputs:
+  time: # id of output
+    description: 'The time we greeted you'
+runs:
+  using: "composite"
+  steps:
+    - run: sed -e '1,7d' .insomnia/ApiSpec/*.yml > apitmp.yaml
+      shell: bash
+
+
+
+
+
+
+
+Set Up Workflow on a Pull Request
+cp -R /Users/claudio/kong/tech/DevPortal/kong-portal-templates /Users/claudio/kong/tech/RedHat/OpenShift/githubactions/runner/actions-runner/_work/cicd/cicd
+
+
+.github/workflows/CI.yaml
+
+
+name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: self-hosted
+    name: Kong
+    steps:
+    - name: GitHub repo
+      run: |
+        echo "Current repository: ${{ github.repository }}!"
+    - name: checkout
+      uses: actions/checkout@v2
+    - name: Kong Deploy API Spec
+      uses: ./.github/actions
+    - name: Kong API deploy
+      run: |
+        pwd
+        tac apitmp.yaml | sed -e 1,5d | tac > httpbin2.yaml
+        rm apitmp.yaml
+        inso generate config httpbin2.yaml --output kong.yaml
+        deck --kong-addr http://$KONG_CP_URL:8001 sync --headers "kong-admin-token:kong"
+        cp httpbin2.yaml ./kong-portal-templates/workspaces/default/specs
+        cd ./kong-portal-templates
+        KONG_ADMIN_URL=http://$KONG_CP_URL:8001 KONG_ADMIN_TOKEN=kong portal deploy default
+
+
+
+mv CI.yaml .github/workflows
+
+
+
+Next, let’s push all the files we created to GitHub now.
+
+
+git add .
+git commit -m "My first actions"
+git push origin main
+git push --set-upstream origin main
+
+
+Add a new runner
+https://github.com/CAcquaviva/cicd/settings/actions/add-new-runner
+
+
+http $KONG_DP_URL/get -a kong_id:2e7c9d11-9076-4389-b070-e10cea7dc8fe
+
+Uninstalling Kong Konnect Enterprise
+If you want to uninstall K4K8S run:
+
+helm uninstall elk -n elk
+helm uninstall logstash -n elk
+helm uninstall kibana -n elk
+
+oc delete namespace elk
+
+
+helm uninstall influxdb -n influxdb
+oc delete namespace influxdb
+oc delete pvc influxdb-data-influxdb-0 -n influxdb
+
+
+
+
+oc delete kongclusterplugin prometheus-plugin
+oc delete service kong-dp-monitoring -n kong-dp
+oc delete servicemonitor kong-dp-service-monitor -n kong-dp
+oc delete serviceaccount kong-prometheus -n kong-dp
+oc delete clusterrole prometheus
+oc delete clusterrolebinding prometheus
+oc delete prometheus kong-dp-prometheus -n kong-dp
+oc delete service prometheus-operated-kong -n kong-dp
+
+
+helm uninstall grafana -n grafana
+helm uninstall statsd -n prometheus
+helm uninstall prometheus -n prometheus
+oc delete namespace prometheus grafana
+oc delete service prometheus-kube-prometheus-kubelet -n kube-system
+
+
+oc annotate ingress sampleroute konghq.com/plugins-
+oc delete ingress sampleroute
+oc delete ingress route1
+
+oc delete service route1-ext
+
+
+
+oc delete service sample
+oc delete deployment sample
+
+oc delete kongplugin rl-by-minute
+oc delete kongplugin apikey
+oc delete secret consumerapikey
+oc delete kongconsumer consumer1
+oc delete kongplugin tcp-log
+
+
+helm uninstall kong -n kong
+helm uninstall kong-dp -n kong-dp
+oc delete -f https://bit.ly/kong-ingress-enterprise
+
+oc delete namespaces kong kong-dp
+
+
+oc delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+oc get namespaces
+oc get crd
+oc get pod --all-namespaces
+oc get service --all-namespaces
+oc get ingress --all-namespaces
+oc get kongplugin --all-namespaces
+oc get kongclusterplugin --all-namespaces
+
+
+eksctl delete cluster --name K4K8S
