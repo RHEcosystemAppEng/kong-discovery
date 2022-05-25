@@ -3,13 +3,13 @@
 - [OpenShift Installation and Google Cloud settings](#openshift-installation-and-google-cloud-settings)
   - [Creating the OpenShift Cluster](#creating-the-openshift-cluster)
   - [Quotas](#quotas)
-  - [Checking the Installation](#checking-the-installation)
+  - [Checking the cluster installation](#checking-the-cluster-installation)
 - [Kong Konnect Enterprise Control Plane](#kong-konnect-enterprise-control-plane)
   - [Portainer installation](#portainer-installation)
   - [Portainer checking](#portainer-checking)
   - [Generating Private Key and Digital Certificate for CP/DP communications](#generating-private-key-and-digital-certificate-for-cpdp-communications)
   - [Configure PostgreSQL database](#configure-postgresql-database)
-  - [Run bootstraping](#run-bootstraping)
+  - [Run bootstrapping](#run-bootstrapping)
   - [Configure Kong Control Plane](#configure-kong-control-plane)
   - [Configure Kong workspace](#configure-kong-workspace)
   - [Check Kong Admin API and Proxy ports](#check-kong-admin-api-and-proxy-ports)
@@ -25,7 +25,7 @@
   - [Check Catalog Source](#check-catalog-source)
   - [Create Subscription](#create-subscription)
   - [Download Kong Helm Charts](#download-kong-helm-charts)
-  - [Configure Kong Konnect Enterprise Chart (konnect-dp.yaml)](#configure-kong-konnect-enterprise-chart-konnect-dpyaml)
+  - [Configure Kong Konnect Enterprise Chart](#configure-kong-konnect-enterprise-chart)
   - [Apply the Kong declaration](#apply-the-kong-declaration)
   - [Checking the deployment](#checking-the-deployment)
   - [Checking pods](#checking-pods)
@@ -109,7 +109,7 @@ Important remark #2: the deployment is based on Kong Konnect Enterprise. Please 
 
 # OpenShift Installation and Google Cloud settings
 
-Login to gcloud or use Cloud Shell
+Login to gcloud or use Cloud Shell.
 
 ```bash
 gcloud auth login
@@ -120,22 +120,15 @@ Create Google Cloud project
 ```bash
 export GCP_PROJECT_NAME=konghq-public
 export GCP_ZONE=us-central1-a
-export GCP_VM_NAME=kong-konnect-cp
 gcloud projects create $GCP_PROJECT_NAME --name $GCP_PROJECT_NAME
-gcloud config set project konghq-public
+gcloud config set project $GCP_PROJECT_NAME
 ```
 
 Creating GCP Public and Private Keys
 
 ```bash
 ssh-keygen -t rsa -b 4096 -N '' -f ~/.ssh/google_rsa
-```
-
-```bash
 eval "$(ssh-agent -s)"
-```
-
-```bash
 ssh-add ~/.ssh/google_rsa
 ```
 
@@ -149,7 +142,7 @@ Use Openshift docs for GCP
 
 You might need to set new quotas for Disks. Go to Quotas on the IAM & Admin page
 
-## Checking the Installation
+## Checking the cluster installation
 
 ```bash
 oc login -u kubeadmin -p <PASSWORD> <OCP_API_URL>
@@ -165,12 +158,31 @@ oc get clusteroperators
 NOTES:
 Check with [product life](https://access.redhat.com/support/policy/updates/errata/) cycle if we can use RHEL 8 or RHEL 9
 
-Create a new Red Hat Enterprise Linux 7 VM Instance and assign tag `kong-konnect-cp` to VM' NIC.
+Create a new Red Hat Enterprise Linux 7 VM Instance and assign tag `kong-konnect-cp` to VM instance.
+
+```bash
+export GCP_VM_NAME=kong-konnect-cp
+gcloud compute instances create $GCP_VM_NAME \
+      --project=$GCP_PROJECT_NAME \
+      --zone=$GCP_ZONE \
+      --machine-type=e2-standard-2 \
+      --network-interface=network-tier=PREMIUM,subnet=default \
+      --maintenance-policy=MIGRATE \
+      --provisioning-model=STANDARD \
+      --tags=kong-konnect-cp \
+      --create-disk=auto-delete=yes,boot=yes,device-name=kong-konnect-cp,image=projects/rhel-cloud/global/images/rhel-7-v20220519,mode=rw,size=20,type=projects/fsi-env2/zones/$GCP_ZONE/diskTypes/pd-balanced \
+      --no-shielded-secure-boot \
+      --shielded-vtpm \
+      --shielded-integrity-monitoring \
+      --reservation-affinity=any
+```
 
 The Control Plane will be running on a specific RHEL 7 VM as the Data Plane will be deployed on the OpenShift Cluster.
 
 ```bash
-export KONG_CP_URL=$(gcloud compute instances describe $GCP_VM_NAME  --format='get(networkInterfaces[0].accessConfigs[0].natIP)' --zone=$GCP_ZONE)
+export KONG_CP_URL=$(gcloud compute instances describe $GCP_VM_NAME  \
+      --format='get(networkInterfaces[0].accessConfigs[0].natIP)' \
+      --zone=$GCP_ZONE)
 ```
 
 Allow the following firewall rules for Control Plane VM
@@ -182,15 +194,54 @@ Allow the following firewall rules for Control Plane VM
 - 9000 Portainer UI
 
 ```bash
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-admin-api --description="Admin API HTTP" --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:8001 --source-ranges=0.0.0.0/0 --target-tags=$GCP_VM_NAME
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-admin-api \
+    --description="Admin API HTTP" \
+    --direction=INGRESS --priority=1000 \
+    --network=default \
+    --action=ALLOW \
+    --rules=tcp:8001 \ 
+    --source-ranges=0.0.0.0/0 \
+    --target-tags=$GCP_VM_NAME
 
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-manager-gui --description="Kong Manager (GUI) HTTP" --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:8002 --source-ranges=0.0.0.0/0 --target-tags=$GCP_VM_NAME
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-manager-gui \
+    --description="Kong Manager (GUI) HTTP" \
+    --direction=INGRESS \
+    --priority=1000 \
+    --network=default \
+    --action=ALLOW \
+    --rules=tcp:8002 \
+    --source-ranges=0.0.0.0/0 \
+    --target-tags=$GCP_VM_NAME
 
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-hybrid --description="Traffic from Data Planes" --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:8005 --source-ranges=0.0.0.0/0 --target-tags=$GCP_VM_NAME
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-hybrid \
+    --description="Traffic from Data Planes" \
+    --direction=INGRESS \
+    --priority=1000 \
+    --network=default \
+    --action=ALLOW \
+    --rules=tcp:8005 \
+    --source-ranges=0.0.0.0/0 \
+    --target-tags=$GCP_VM_NAME
 
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-telemetry --description="Vitals telemetry data from Data Planes" --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:8006 --source-ranges=0.0.0.0/0 --target-tags=$GCP_VM_NAME
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-telemetry \
+    --description="Vitals telemetry data from Data Planes" \
+    --direction=INGRESS \
+    --priority=1000 \
+    --network=default \
+    --action=ALLOW \
+    --rules=tcp:8006 \
+    --source-ranges=0.0.0.0/0 \
+    --target-tags=$GCP_VM_NAME
 
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create portainer-ui-api --description="Portainer UI and API" --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:9000 --source-ranges=0.0.0.0/0 --target-tags=$GCP_VM_NAME
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create portainer-ui-api \
+    --description="Portainer UI and API" \
+    --direction=INGRESS \
+    --priority=1000 \
+    --network=default \
+    --action=ALLOW \
+    --rules=tcp:9000 \
+    --source-ranges=0.0.0.0/0 \
+    --target-tags=$GCP_VM_NAME
 ```
 
 Connecting to the VM
@@ -217,7 +268,7 @@ sudo pip3 install httpie
 Install Docker
 
 NOTES:
-We are using CentOS because Docker provide packages only for RHEL on s390x (IBM Z)
+We are using CentOS repo because Docker provide packages only for RHEL on s390x (IBM Z)
 
 [Reference](https://docs.docker.com/engine/install/centos/)
 
@@ -238,7 +289,9 @@ sudo docker info
 
 ```bash
 sudo docker volume create portainer_data
-sudo docker run --name portainer -d -p 9000:9000 -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ce:2.6.0-alpine
+sudo docker run --name portainer -d -p 9000:9000 \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v portainer_data:/data portainer/portainer-ce:2.6.0-alpine
 ```
 
 ## Portainer checking
@@ -265,28 +318,28 @@ sudo docker network create kong-net
 sudo docker pull kong/kong-gateway:2.4.1.1-alpine
 sudo docker tag kong/kong-gateway:2.4.1.1-alpine kong-ee
 sudo docker run -d --network kong-net --name kong-ee-database \
-   -p 5432:5432 \
-   -e "POSTGRES_USER=kong" \
-   -e "POSTGRES_DB=kong" \
-   -e "POSTGRES_HOST_AUTH_METHOD=trust" \
-   postgres:latest
+    -p 5432:5432 \
+    -e "POSTGRES_USER=kong" \
+    -e "POSTGRES_DB=kong" \
+    -e "POSTGRES_HOST_AUTH_METHOD=trust" \
+    postgres:latest
 ```
 
 Replace KONG_LICENSE_DATA with correct license (don't remove single quotes)
 
 ```bash
-export KONG_LICENSE_DATA='<LICENCE_DATA>'
+export KONG_LICENSE_DATA='<LICENSE_DATA>'
 ```
 
-## Run bootstraping
+## Run bootstrapping
 
 ```bash
 sudo docker run --rm --network kong-net --link kong-ee-database:kong-ee-database \
-   -e "KONG_DATABASE=postgres" -e "KONG_PG_HOST=kong-ee-database" \
-   -e "KONG_LICENSE_DATA=$KONG_LICENSE_DATA" \
-   -e "KONG_PASSWORD=kong" \
-   -e "POSTGRES_PASSWORD=kong" \
-   kong-ee kong migrations bootstrap
+    -e "KONG_DATABASE=postgres" -e "KONG_PG_HOST=kong-ee-database" \
+    -e "KONG_LICENSE_DATA=$KONG_LICENSE_DATA" \
+    -e "KONG_PASSWORD=kong" \
+    -e "POSTGRES_PASSWORD=kong" \
+    kong-ee kong migrations bootstrap
 ```
 
 ## Configure Kong Control Plane
@@ -295,43 +348,43 @@ Replace `/home/claudio/cluster.crt` with path to the generated cert and private 
 
 ```bash
 sudo docker run -d --network kong-net --name kong-ee --link kong-ee-database:kong-ee-database \
-  -e "KONG_DATABASE=postgres" \
-  -e "KONG_PG_HOST=kong-ee-database" \
-  -e "KONG_PG_PASSWORD=kong" \
-  -e "KONG_PROXY_ACCESS_LOG=/dev/stdout" \
-  -e "KONG_ADMIN_ACCESS_LOG=/dev/stdout" \
-  -e "KONG_PORTAL_API_ACCESS_LOG=/dev/stdout" \
-  -e "KONG_PROXY_ERROR_LOG=/dev/stderr" \
-  -e "KONG_PORTAL_API_ERROR_LOG=/dev/stderr" \
-  -e "KONG_ADMIN_ERROR_LOG=/dev/stderr" \
-  -e "KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl" \
-  -e "KONG_ADMIN_GUI_LISTEN=0.0.0.0:8002, 0.0.0.0:8445 ssl" \
-  -e "KONG_PORTAL=on" \
-  -e "KONG_PORTAL_GUI_PROTOCOL=http" \
-  -e "KONG_PORTAL_GUI_HOST=$KONG_CP_URL:8003" \
-  -e "KONG_PORTAL_SESSION_CONF={\"cookie_name\": \"portal_session\", \"secret\": \"portal_secret\", \"storage\":\"kong\", \"cookie_secure\": false}" \
-  -e "KONG_LICENSE_DATA=$KONG_LICENSE_DATA" \
-  -e "KONG_ROLE=control_plane" \
-  -e "KONG_CLUSTER_LISTEN=0.0.0.0:8005" \
-  -e "KONG_CLUSTER_TELEMETRY_LISTEN=0.0.0.0:8006" \
-  -e "KONG_VITALS=on" \
-  -e "KONG_CLUSTER_CERT=/etc/cluster.crt" \
-  -e "KONG_CLUSTER_CERT_KEY=/etc/cluster.key" \
-  -p 8000:8000 \
-  -p 8443:8443 \
-  -p 8001:8001 \
-  -p 8444:8444 \
-  -p 8002:8002 \
-  -p 8445:8445 \
-  -p 8003:8003 \
-  -p 8446:8446 \
-  -p 8004:8004 \
-  -p 8447:8447 \
-  -p 8005:8005 \
-  -p 8006:8006 \
-  -v /home/claudio/cluster.crt:/etc/cluster.crt:ro \
-  -v /home/claudio/cluster.key:/etc/cluster.key:ro \
-  kong-ee
+    -e "KONG_DATABASE=postgres" \
+    -e "KONG_PG_HOST=kong-ee-database" \
+    -e "KONG_PG_PASSWORD=kong" \
+    -e "KONG_PROXY_ACCESS_LOG=/dev/stdout" \
+    -e "KONG_ADMIN_ACCESS_LOG=/dev/stdout" \
+    -e "KONG_PORTAL_API_ACCESS_LOG=/dev/stdout" \
+    -e "KONG_PROXY_ERROR_LOG=/dev/stderr" \
+    -e "KONG_PORTAL_API_ERROR_LOG=/dev/stderr" \
+    -e "KONG_ADMIN_ERROR_LOG=/dev/stderr" \
+    -e "KONG_ADMIN_LISTEN=0.0.0.0:8001, 0.0.0.0:8444 ssl" \
+    -e "KONG_ADMIN_GUI_LISTEN=0.0.0.0:8002, 0.0.0.0:8445 ssl" \
+    -e "KONG_PORTAL=on" \
+    -e "KONG_PORTAL_GUI_PROTOCOL=http" \
+    -e "KONG_PORTAL_GUI_HOST=$KONG_CP_URL:8003" \
+    -e "KONG_PORTAL_SESSION_CONF={\"cookie_name\": \"portal_session\", \"secret\": \"portal_secret\", \"storage\":\"kong\", \"cookie_secure\": false}" \
+    -e "KONG_LICENSE_DATA=$KONG_LICENSE_DATA" \
+    -e "KONG_ROLE=control_plane" \
+    -e "KONG_CLUSTER_LISTEN=0.0.0.0:8005" \
+    -e "KONG_CLUSTER_TELEMETRY_LISTEN=0.0.0.0:8006" \
+    -e "KONG_VITALS=on" \
+    -e "KONG_CLUSTER_CERT=/etc/cluster.crt" \
+    -e "KONG_CLUSTER_CERT_KEY=/etc/cluster.key" \
+    -p 8000:8000 \
+    -p 8443:8443 \
+    -p 8001:8001 \
+    -p 8444:8444 \
+    -p 8002:8002 \
+    -p 8445:8445 \
+    -p 8003:8003 \
+    -p 8446:8446 \
+    -p 8004:8004 \
+    -p 8447:8447 \
+    -p 8005:8005 \
+    -p 8006:8006 \
+    -v /home/claudio/cluster.crt:/etc/cluster.crt:ro \
+    -v /home/claudio/cluster.key:/etc/cluster.key:ro \
+    kong-ee
 ```
 
 ## Configure Kong workspace
@@ -381,7 +434,10 @@ http $KONG_CP_URL:8000
 Output:
 
 ```bash
-http: error: ConnectionError: HTTPConnectionPool(host='$KONG_CP_URL', port=8000): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f585bb74198>: Failed to establish a new connection: [Errno 111] Connection refused',)) while doing a GET request to URL: http://$KONG_CP_URL:8000/
+http: error: ConnectionError: HTTPConnectionPool(host='$KONG_CP_URL', port=8000): 
+Max retries exceeded with url: / (Caused by NewConnectionError
+('<urllib3.connection.HTTPConnection object at 0x7f585bb74198>: Failed to establish a new connection: 
+[Errno 111] Connection refused',)) while doing a GET request to URL: http://$KONG_CP_URL:8000/
 ```
 
 # Kong Konnect Enterprise Data Plane - OpenShift
@@ -395,15 +451,19 @@ NOTES:
 Replace `/home/claudio/` with correct path
 
 ```bash
-gcloud compute scp --project=$GCP_PROJECT_NAME --zone=$GCP_ZONE konnect-cp:/home/claudio/cluster.crt .
-gcloud compute scp --project=$GCP_PROJECT_NAME --zone=$GCP_ZONE konnect-cp:/home/claudio/cluster.key .
+gcloud compute scp \
+    --project=$GCP_PROJECT_NAME \
+    --zone=$GCP_ZONE konnect-cp:/home/claudio/cluster.crt .
+gcloud compute scp \
+    --project=$GCP_PROJECT_NAME \
+    --zone=$GCP_ZONE konnect-cp:/home/claudio/cluster.key .
 ```
 
 You should see both files in your local laptop.
 
 ## Kubeconfig environment variable
 
-Set the KUBECONFIG env variable to connect to the OpenShift Cluster laptop use oc command to install the Data Plane.
+Set the KUBECONFIG env variable to connect to the OpenShift Cluster.
 
 ```bash
 export KUBECONFIG=<KUBECONFIG_PATH>
@@ -429,13 +489,15 @@ From your laptop use `oc` command to install the Data Plane.
 Create a secret with your license file
 
 ```bash
-oc create secret generic kong-enterprise-license --from-file=license=./license.json -n $OCP_PROJECT_NAME
+oc create secret generic kong-enterprise-license \
+    --from-file=license=./license.json -n $OCP_PROJECT_NAME
 ```
 
 Create secret for the certificate/key pair using the same local files we exported before.
 
 ```bash
-oc create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster.key -n $OCP_PROJECT_NAME
+oc create secret tls kong-cluster-cert --cert=./cluster.crt \
+    --key=./cluster.key -n $OCP_PROJECT_NAME
 ```
 
 ## Installing Kong Konnect Enterprise Data Plane with Kong Operator
@@ -521,7 +583,7 @@ tar xvf *
 cd kong
 ```
 
-## Configure Kong Konnect Enterprise Chart (konnect-dp.yaml)
+## Configure Kong Konnect Enterprise Chart
 
 Copy the original `values.yaml` provided by the Kong to `konnect-dp.yaml`
 
@@ -529,7 +591,7 @@ Copy the original `values.yaml` provided by the Kong to `konnect-dp.yaml`
 cp values.yaml konnect-dp.yaml
 ```
 
-Use `konnect-dp.yaml` as an example or include the following settings.
+Use `konnect-dp.yaml` as an example or include the following settings in `konnect-dp.yaml`.
 
 ```bash
 sed -i "s/KONG_CP_URL/$KONG_CP_URL/" konnect-dp.yaml
@@ -543,11 +605,6 @@ env.lua_ssl_trusted_certificate: /etc/secrets/kong-cluster-cert/tls.crt
 env.cluster_control_plane: $KONG_CP_URL:8005
 env.cluster_telemetry_endpoint: $KONG_CP_URL:8006
 env.status_listen: 0.0.0.0:8100
-```
-
-Change the following settings
-
-```yaml
 image.repository: kong/kong-gateway
 image.tag: "2.4.1.1-alpine"
 admin.enabled: false
@@ -579,9 +636,9 @@ autoscaling.metrics[0].resource.target.averageUtilization=75
 
 !!!!!!!!!!HUGE NOTES!!!!!!!!
 
-When `autoscaling` enabled deployment potentially will not work because of [issue](https://github.com/Kong/kong-operator/pull/78)
+When `autoscaling` enabled deployment potentially will not work because of the [issue](https://github.com/Kong/kong-operator/pull/78)
 
-If so you need to add following permissions to the ClusterRole `kong-<some_symbols>`  and then apply `konnect-dp.yaml`
+If so you need to add following permissions to the ClusterRole `kong-<some_symbols>` in OCP console and then apply `konnect-dp.yaml`
 
 ```yaml
 - apiGroups:
@@ -764,7 +821,7 @@ NAME              READY   UP-TO-DATE   AVAILABLE   AGE
 konnect-dp-kong   1/1     1            1           38m
 ```
 
-Edit the "konnect-dp.yaml" file updating the replicaCount configuration to 3
+Edit the "konnect-dp.yaml" file updating the `replicaCount` configuration to 3
 
 ```yaml
   # Kong pod count.
@@ -801,7 +858,8 @@ oc new-project keycloak
 ## Installing Keycloak
 
 ```bash
-oc process -f https://raw.githubusercontent.com/keycloak/keycloak-quickstarts/latest/openshift-examples/keycloak.yaml \
+oc process -f \
+    https://raw.githubusercontent.com/keycloak/keycloak-quickstarts/latest/openshift-examples/keycloak.yaml \
     -p KEYCLOAK_ADMIN=admin \
     -p KEYCLOAK_ADMIN_PASSWORD=keycloak \
     -p NAMESPACE=keycloak \
@@ -866,6 +924,7 @@ Choose `kong_id` for the new client. The configurations are below:
 - `Valid Redirect URIs`: `http://$KONG_DP_URL/oidcroute/get`
 
 This parameter is needed in the OAuth Authorization Code Grant. Notice we're using our Data Plane public IP.
+
 Click on `Save`. The `Credentials` option is shown in the horizontal menu.
 
 Click on `Credentials` and take note of the `client_secret`.
@@ -957,6 +1016,8 @@ You can check the Token with <https://jwt.io>
 ## Client Credentials
 
 Create another Kong Service and Route and apply the plugin again
+
+Replace `client_secret` and `issuer` with `KEYCLOAK_CLIENT_SECRET` and Keycloak route URL.
 
 ```bash
 http $KONG_CP_URL:8001/services name=oidcservice2 url='http://httpbin.org'
@@ -1113,7 +1174,12 @@ http $KONG_CP_URL:8001/services/cachingservice/routes name='cachingroute' paths:
 ## Configure caching plugin
 
 ```bash
-curl -X POST http://$KONG_CP_URL:8001/routes/cachingroute/plugins --data "name=proxy-cache-advanced"  --data "config.cache_ttl=30" --data "config.strategy=redis" --data "config.redis.host=redis.redis.svc.cluster.local" --data "config.redis.port=6379"
+curl -X POST http://$KONG_CP_URL:8001/routes/cachingroute/plugins \
+    --data "name=proxy-cache-advanced"  \
+    --data "config.cache_ttl=30" \
+    --data "config.strategy=redis" \
+    --data "config.redis.host=redis.redis.svc.cluster.local" \
+    --data "config.redis.port=6379"
 ```
 
 ## Check caching configuration
@@ -1126,7 +1192,7 @@ http $KONG_DP_URL/cache/get
 
 NOTES: Should we suggest to use native OCP Operator fit that?
 
-https://github.com/elastic/helm-charts
+<https://github.com/elastic/helm-charts>
 
 From the Monitoring and Log Processing perspective, it's important to integrate Kong Konnect Enterprise with a best-of-breed product to externalize all information related to processed requests and allow users to define dashboard, alerts, reports, etc.
 
@@ -1180,13 +1246,13 @@ helm repo add elastic https://helm.elastic.co
 
 ```bash
 helm install elk elastic/elasticsearch -n elk \
---set replicas=1 \
---set minimumMasterNodes=1 \
---set securityContext.runAsUser=null \
---set securityContext.runAsNonRoot=true \
---set podSecurityContext.runAsUser=null \
---set podSecurityContext.fsGroup=null \
---set sysctlInitContainer.enabled=false
+      --set replicas=1 \
+      --set minimumMasterNodes=1 \
+      --set securityContext.runAsUser=null \
+      --set securityContext.runAsNonRoot=true \
+      --set podSecurityContext.runAsUser=null \
+      --set podSecurityContext.fsGroup=null \
+      --set sysctlInitContainer.enabled=false
 ```
 
 ## Logstash
@@ -1316,26 +1382,36 @@ oc annotate ingress route1 konghq.com/plugins-
 ```
 
 # Red Hat Fuse
-https://spring.io/projects/spring-boot
-https://spring.io/guides/gs/spring-boot/
-https://docs.spring.io/spring-boot/docs/current/maven-plugin/reference/htmlsingle/
-https://camel.apache.org/camel-spring-boot/latest/index.html
-https://developers.redhat.com/products/fuse
-https://developers.redhat.com/products/fuse/getting-started
-https://access.redhat.com/documentation/en-us/red_hat_fuse/7.7/html/fuse_on_openshift_guide/index
-https://github.com/AdoptOpenJDK/homebrew-openjdk
+
+<https://spring.io/projects/spring-boot>
+
+<https://spring.io/guides/gs/spring-boot/>
+
+<https://docs.spring.io/spring-boot/docs/current/maven-plugin/reference/htmlsingle/>
+
+<https://camel.apache.org/camel-spring-boot/latest/index.html>
+
+<https://developers.redhat.com/products/fuse>
+
+<https://developers.redhat.com/products/fuse/getting-started>
+
+<https://access.redhat.com/documentation/en-us/red_hat_fuse/7.7/html/fuse_on_openshift_guide/index>
+
+<https://github.com/AdoptOpenJDK/homebrew-openjdk>
 
 ## Web Service App
 
 ```bash
-curl --location --request POST 'https://www.dataaccess.com/webservicesserver/numberconversion.wso' --header 'Content-Type: text/xml; charset=utf-8' --data-raw '<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-    <soap:Body>
-        <NumberToWords xmlns="http://www.dataaccess.com/webservicesserver/">
-            <ubiNum>111</ubiNum>
-        </NumberToWords>
-    </soap:Body>
-</soap:Envelope>'
+curl --location --request POST 'https://www.dataaccess.com/webservicesserver/numberconversion.wso' \
+    --header 'Content-Type: text/xml; charset=utf-8' \
+    --data-raw '<?xml version="1.0" encoding="utf-8"?>
+        <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+            <soap:Body>
+                <NumberToWords xmlns="http://www.dataaccess.com/webservicesserver/">
+                    <ubiNum>111</ubiNum>
+                </NumberToWords>
+            </soap:Body>
+        </soap:Envelope>'
 ```
 
 Output:
@@ -1356,7 +1432,7 @@ Output:
 
 NOTES: AdoptOpenJDK is no longer supported and it is recommended that all users move to Eclipse Temurin
 
-https://adoptopenjdk.net/
+<https://adoptopenjdk.net/>
 
 ```bash
 jdk -version
@@ -1392,7 +1468,7 @@ Output:
 
 ```bash
 HTTP/1.1 200 OK
-Access-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers
+Access-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type
 Access-Control-Allow-Methods: GET, HEAD, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH
 Access-Control-Allow-Origin: *
 Access-Control-Max-Age: 3600
@@ -1410,7 +1486,7 @@ Transfer-Encoding: chunked
 
 Replace domain with necessary value.
 
-http://rest-soap-transformation-fuse-soap-rest-proxy.apps.kongcluster1.kong-acquaviva.com/swagger-ui.html
+<http://rest-soap-transformation-fuse-soap-rest-proxy.apps.kongcluster1.kong-acquaviva.com/swagger-ui.html>
 
 ```bash
 http rest-soap-transformation-fuse-soap-rest-proxy.apps.kongcluster1.kong-acquaviva.com/camel/numbertowords/333
@@ -1420,7 +1496,7 @@ Output:
 
 ```bash
 HTTP/1.1 200 OK
-Access-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers
+Access-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type
 Access-Control-Allow-Methods: GET, HEAD, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH
 Access-Control-Allow-Origin: *
 Access-Control-Max-Age: 3600
@@ -1448,24 +1524,41 @@ http $KONG_CP_URL:8001/services/rest-soap-service/routes name='rest-soap-route' 
 ### Enabling caching
 
 ```bash
-curl -X POST http://$KONG_CP_URL:8001/routes/cachingroute/plugins --data "name=proxy-cache-advanced"  --data "config.cache_ttl=30" --data "config.strategy=redis" --data "config.redis.host=redis.redis.svc.cluster.local" --data "config.redis.port=6379"
+curl -X POST http://$KONG_CP_URL:8001/routes/cachingroute/plugins \
+    --data "name=proxy-cache-advanced" \
+    --data "config.cache_ttl=30" \
+    --data "config.strategy=redis" \
+    --data "config.redis.host=redis.redis.svc.cluster.local" \
+    --data "config.redis.port=6379"
 ```
 
 # CXF ("Celtix" and "XFire")
 
-https://github.com/apache/cxf
-https://cxf.apache.org/
-https://maven.apache.org/
-https://mvnrepository.com/
-https://search.maven.org/
-https://documenter.getpostman.com/view/8854915/Szf26WHn
-https://github.com/sigreen/rest-soap-transformation
-https://github.com/sigreen/weather-station-apis
-https://www.youtube.com/watch?v=TLOLWMeobuU
-https://restlet.talend.com/
-https://www.dataaccess.com/webservicesserver/numberconversion.wso
-https://www.dataaccess.com/webservicesserver/numberconversion.wso?op=NumberToWords
-https://www.dataaccess.com/webservicesserver/numberconversion.wso?WSDL
+<https://github.com/apache/cxf>
+
+<https://cxf.apache.org/>
+
+<https://maven.apache.org/>
+
+<https://mvnrepository.com/>
+
+<https://search.maven.org/>
+
+<https://documenter.getpostman.com/view/8854915/Szf26WHn>
+
+<https://github.com/sigreen/rest-soap-transformation>
+
+<https://github.com/sigreen/weather-station-apis>
+
+<https://www.youtube.com/watch?v=TLOLWMeobuU>
+
+<https://restlet.talend.com/>
+
+<https://www.dataaccess.com/webservicesserver/numberconversion.wso>
+
+<https://www.dataaccess.com/webservicesserver/numberconversion.wso?op=NumberToWords>
+
+<https://www.dataaccess.com/webservicesserver/numberconversion.wso?WSDL>
 
 ```bash
 mvn -s configuration/settings.xml spring-boot:run -Dspring.profiles.active=dev 
@@ -1474,7 +1567,7 @@ mvn -s configuration/settings.xml spring-boot:run -Dspring.profiles.active=dev
 # GitHub & GitHub Actions
 
 SSH Keys
-https://docs.github.com/en/github/authenticating-to-github/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent
+<https://docs.github.com/en/github/authenticating-to-github/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent>
 
 ```bash
 ssh-keygen -t rsa -b 4096 -C "<EMAIL>"
@@ -1504,10 +1597,9 @@ Copy and paste public key in GitHub page and test the connection with GitHub
 ssh -T git@github.com
 ```
 
-https://konghq.com/blog/gitops-for-kong-managing-kong-declaratively-with-deck-and-github-actions/
+<https://konghq.com/blog/gitops-for-kong-managing-kong-declaratively-with-deck-and-github-actions/>
 
-https://docs.github.com/en/actions/hosting-your-own-runners/about-self-hosted-runners
-
+<https://docs.github.com/en/actions/hosting-your-own-runners/about-self-hosted-runners>
 
 ## Create a new Repo
 
@@ -1541,25 +1633,23 @@ git commit -m "first commit"
 git branch -M main
 git remote add origin git@github.com:cacquaviva/cicd.git
 
-//curl -u USERNAME:PASSWORD https://api.github.com/user/repos -d '{"name":"cicd"}'
-curl -u dab1f2c1c80bf1d4a813aa0fd2cfed5905d5ac2b https://api.github.com/user/repos -d '{"name":"cicd"}'
+//curl -u USERNAME:PASSWORD <https://api.github.com/user/repos> -d '{"name":"cicd"}'
+curl -u dab1f2c1c80bf1d4a813aa0fd2cfed5905d5ac2b <https://api.github.com/user/repos> -d '{"name":"cicd"}'
 
 //git remote add origin git@github.com:cacquaviva/cicd
 
 git push -u origin main
 */
 
-
 Configure Insomnia
 Create a new Design Document "OpenShift"
 
-https://github.com/CAcquaviva/cicd.git
+<https://github.com/CAcquaviva/cicd.git>
 cacquaviva
 dab1f2c1c80bf1d4a813aa0fd2cfed5905d5ac2b
 
 Create a new main branch
 Commit and Push from Insomnia
-
 
 Update local repo
 git remote add origin git@github.com:cacquaviva/cicd.git
@@ -1574,7 +1664,6 @@ git branch -M main
 
 git push -u origin main
 
-
 Include OpenAPI Spec
 Go back to Insomnia and Pull. Include the following Spec. Commit it and push it.
 
@@ -1588,7 +1677,8 @@ info:
   contact:
     name: Kong
 servers:
-  - url: 'http://httpbin.org'
+
+- url: 'http://httpbin.org'
     description: kongenterprise
 paths:
   '/get':
@@ -1602,9 +1692,6 @@ paths:
           content:
             application/json
       description: "HTTPbin request"
-
-
-
 
 Include OIDC settings:
 
@@ -1618,7 +1705,8 @@ info:
   contact:
     name: Kong
 servers:
-  - url: 'http://httpbin.org'
+
+- url: 'http://httpbin.org'
     description: kongenterprise
 paths:
   '/get':
@@ -1629,7 +1717,7 @@ paths:
       x-kong-plugin-openid-connect:
         enabled: true
         config:
-          issuer: https://keycloak-keycloak.apps.kongcluster1.kong-acquaviva.com/auth/realms/kong
+          issuer: <https://keycloak-keycloak.apps.kongcluster1.kong-acquaviva.com/auth/realms/kong>
           cache_ttl: 10
       responses:
         '200':
@@ -1638,20 +1726,13 @@ paths:
             application/json
       description: "HTTPbin request"
 
-
-
-
-
-
 ------------
 git pull origin main -q
 
-git add .
+git add
 git commit -m "first commit"
 git push -u origin main
 ------------
-
-
 
 GitHub Actions
 action.yaml, which states the basic definition of the action, including the base image it relies on and the parameters to run:
@@ -1700,18 +1781,10 @@ runs:
     - run: sed -e '1,7d' .insomnia/ApiSpec/*.yml > apitmp.yaml
       shell: bash
 
-
-
-
-
-
-
 Set Up Workflow on a Pull Request
 cp -R /Users/claudio/kong/tech/DevPortal/kong-portal-templates /Users/claudio/kong/tech/RedHat/OpenShift/githubactions/runner/actions-runner/_work/cicd/cicd
 
-
 .github/workflows/CI.yaml
-
 
 name: CI
 
@@ -1735,29 +1808,22 @@ jobs:
         tac apitmp.yaml | sed -e 1,5d | tac > httpbin2.yaml
         rm apitmp.yaml
         inso generate config httpbin2.yaml --output kong.yaml
-        deck --kong-addr http://$KONG_CP_URL:8001 sync --headers "kong-admin-token:kong"
+        deck --kong-addr <http://$KONG_CP_URL:8001> sync --headers "kong-admin-token:kong"
         cp httpbin2.yaml ./kong-portal-templates/workspaces/default/specs
         cd ./kong-portal-templates
-        KONG_ADMIN_URL=http://$KONG_CP_URL:8001 KONG_ADMIN_TOKEN=kong portal deploy default
-
-
+        KONG_ADMIN_URL=<http://$KONG_CP_URL:8001> KONG_ADMIN_TOKEN=kong portal deploy default
 
 mv CI.yaml .github/workflows
 
-
-
 Next, let’s push all the files we created to GitHub now.
-
 
 git add .
 git commit -m "My first actions"
 git push origin main
 git push --set-upstream origin main
 
-
 Add a new runner
-https://github.com/CAcquaviva/cicd/settings/actions/add-new-runner
-
+<https://github.com/CAcquaviva/cicd/settings/actions/add-new-runner>
 
 http $KONG_DP_URL/get -a kong_id:2e7c9d11-9076-4389-b070-e10cea7dc8fe
 
@@ -1770,13 +1836,9 @@ helm uninstall kibana -n elk
 
 oc delete namespace elk
 
-
 helm uninstall influxdb -n influxdb
 oc delete namespace influxdb
 oc delete pvc influxdb-data-influxdb-0 -n influxdb
-
-
-
 
 oc delete kongclusterplugin prometheus-plugin
 oc delete service kong-dp-monitoring -n kong-dp
@@ -1787,21 +1849,17 @@ oc delete clusterrolebinding prometheus
 oc delete prometheus kong-dp-prometheus -n kong-dp
 oc delete service prometheus-operated-kong -n kong-dp
 
-
 helm uninstall grafana -n grafana
 helm uninstall statsd -n prometheus
 helm uninstall prometheus -n prometheus
 oc delete namespace prometheus grafana
 oc delete service prometheus-kube-prometheus-kubelet -n kube-system
 
-
 oc annotate ingress sampleroute konghq.com/plugins-
 oc delete ingress sampleroute
 oc delete ingress route1
 
 oc delete service route1-ext
-
-
 
 oc delete service sample
 oc delete deployment sample
@@ -1812,15 +1870,13 @@ oc delete secret consumerapikey
 oc delete kongconsumer consumer1
 oc delete kongplugin tcp-log
 
-
 helm uninstall kong -n kong
 helm uninstall kong-dp -n kong-dp
-oc delete -f https://bit.ly/kong-ingress-enterprise
+oc delete -f <https://bit.ly/kong-ingress-enterprise>
 
 oc delete namespaces kong kong-dp
 
-
-oc delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+oc delete -f <https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml>
 
 oc get namespaces
 oc get crd
@@ -1829,6 +1885,5 @@ oc get service --all-namespaces
 oc get ingress --all-namespaces
 oc get kongplugin --all-namespaces
 oc get kongclusterplugin --all-namespaces
-
 
 eksctl delete cluster --name K4K8S
