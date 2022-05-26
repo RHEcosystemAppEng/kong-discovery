@@ -170,7 +170,7 @@ gcloud compute instances create $GCP_VM_NAME \
       --network-interface=network-tier=PREMIUM,subnet=default \
       --maintenance-policy=MIGRATE \
       --provisioning-model=STANDARD \
-      --tags=kong-konnect-cp \
+      --tags=kong-connect-cp,portainer \
       --create-disk=auto-delete=yes,boot=yes,device-name=kong-konnect-cp,image=projects/rhel-cloud/global/images/rhel-7-v20220519,mode=rw,size=20,type=projects/fsi-env2/zones/$GCP_ZONE/diskTypes/pd-balanced \
       --no-shielded-secure-boot \
       --shielded-vtpm \
@@ -197,12 +197,13 @@ Allow the following firewall rules for Control Plane VM
 ```bash
 gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-admin-api \
     --description="Admin API HTTP" \
-    --direction=INGRESS --priority=1000 \
+    --direction=INGRESS \
+    --priority=1000 \
     --network=default \
     --action=ALLOW \
-    --rules=tcp:8001 \ 
+    --rules=tcp:8001 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=$GCP_VM_NAME
+    --target-tags=kong-connect-cp
 
 gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-manager-gui \
     --description="Kong Manager (GUI) HTTP" \
@@ -212,7 +213,7 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-manager-gu
     --action=ALLOW \
     --rules=tcp:8002 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=$GCP_VM_NAME
+    --target-tags=kong-connect-cp
 
 gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-hybrid \
     --description="Traffic from Data Planes" \
@@ -222,7 +223,7 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-hybrid \
     --action=ALLOW \
     --rules=tcp:8005 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=$GCP_VM_NAME
+    --target-tags=kong-connect-cp
 
 gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-telemetry \
     --description="Vitals telemetry data from Data Planes" \
@@ -232,7 +233,7 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-telemetry
     --action=ALLOW \
     --rules=tcp:8006 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=$GCP_VM_NAME
+    --target-tags=kong-connect-cp
 
 gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create portainer-ui-api \
     --description="Portainer UI and API" \
@@ -242,7 +243,7 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create portainer-ui-ap
     --action=ALLOW \
     --rules=tcp:9000 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=$GCP_VM_NAME
+    --target-tags=portainer
 ```
 
 Connecting to the VM
@@ -256,7 +257,7 @@ Configure Environment and re-login to the session.
 ```bash
 echo "LANG=en_US.utf-8" | sudo tee -a /etc/environment
 echo "LC_ALL=en_US.utf-8" | sudo tee -a /etc/environment
-cat /etc/environment
+sudo cat /etc/environment
 ```
 
 Install utilities
