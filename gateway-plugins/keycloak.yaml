@@ -1,0 +1,104 @@
+apiVersion: keycloak.org/v1alpha1
+kind: Keycloak
+metadata:
+  labels:
+    app: kong-demo
+  name: kong-keycloak
+  namespace: kong-keycloak
+spec:
+  externalAccess:
+    enabled: true
+  instances: 1
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakRealm
+metadata:
+  name: kong-realm
+  namespace: kong-keycloak
+  labels:
+    app: kong-demo
+spec:
+  instanceSelector:
+    matchLabels:
+      app: kong-demo
+  realm:
+    displayName: Kong Realm
+    enabled: true
+    id: kong
+    realm: kong
+    roles:
+      realm:
+        - name: customer
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakClient
+metadata:
+  name: kuma-demo-client
+  namespace: kong-keycloak
+  labels:
+    app: kong-demo
+spec:
+  client:
+    enabled: true
+    clientAuthenticatorType: client-secret
+    redirectUris:
+      - 'http://demo-app-kong.$OCP_DOMAIN/*'
+    clientId: kuma-demo-client
+    name: kuma-demo-client
+    rootUrl: 'http://demo-app-kong.$OCP_DOMAIN/'
+    implicitFlowEnabled: false
+    secret: client-secret
+    publicClient: false
+    standardFlowEnabled: true
+    directAccessGrantsEnabled: true
+    protocolMappers:
+      - protocol: openid-connect
+        protocolMapper: oidc-usermodel-realm-role-mapper
+        name: realm roles
+        config:
+          access.token.claim: "true"
+          multivalued: "true"
+          jsonType.label: String
+          claim.name: roles
+  realmSelector:
+    matchLabels:
+      app: kong-demo
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakUser
+metadata:
+  name: kermit-user
+  namespace: kong-keycloak
+spec:
+  realmSelector:
+    matchLabels:
+      app: kong-demo
+  user:
+    credentials:
+      - type: password
+        value: kong
+    email: kthefrog@example.com
+    enabled: true
+    firstName: Kermit
+    lastName: The Frog
+    username: kermit
+    realmRoles:
+      - customer
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakUser
+metadata:
+  name: bob-user
+  namespace: kong-keycloak
+spec:
+  realmSelector:
+    matchLabels:
+      app: kong-demo
+  user:
+    credentials:
+      - type: password
+        value: kong
+    email: bob@example.com
+    enabled: true
+    firstName: Bob
+    username: bob

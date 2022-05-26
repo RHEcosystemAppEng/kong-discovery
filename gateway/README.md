@@ -6,7 +6,7 @@ As usual, create the namespace and the secret with the license.
 
 ```bash
 oc new-project kong
-oc create secret generic kong-enterprise-license --from-file=license=./license.json
+oc create secret generic kong-enterprise-license --from-file=license=./license.json -n kong
 ```
 
 Generate a certificate that will be used to expose the TLS. Use that certificate to create

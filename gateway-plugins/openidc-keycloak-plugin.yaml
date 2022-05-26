@@ -1,0 +1,18 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: keycloak-auth-plugin
+  namespace: kuma-demo
+config: 
+  auth_methods:
+  - authorization_code
+  - session
+  hide_credentials: true
+  issuer: https://keycloak-kong-keycloak.$OCP_DOMAIN/auth/realms/kong
+  client_id:
+  - kuma-demo-client
+  client_secret:
+  - client-secret
+  roles_required:
+  - customer
+plugin: openid-connect
