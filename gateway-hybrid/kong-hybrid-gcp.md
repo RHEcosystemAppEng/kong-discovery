@@ -84,9 +84,9 @@
 
 # Kong Konnect Enterprise Hybrid Mode
 
-One of the most powerful capabilities provided by Kong Konnect Enterprise is the support for Hybrid deployments. In other words, it implements distributed API Gateway Clusters with multiple instances running on several environments at the same time.
+One of the most powerful capabilities provided by Kong Konnect Enterprise is the support for Hybrid deployments. In other words, it implements distributed API Gateway Clusters with multiple instances running in several environments at the same time.
 
-Moreover, Kong Konnect Enterprise provides a new topology option, named Hybrid Mode, with a total separation of the Control Plane (CP) and Data Plane (DP). That is, while Control Plane is responsible for administration tasks, the Data Plane is exclusively used by API Consumers.
+Moreover, Kong Konnect Enterprise provides a new topology option, named Hybrid Mode, with a total separation of the Control Plane (CP) and Data Plane (DP). While the Control Plane handles administration tasks, the Data Plane is only used by API Consumers
 
 Please, refer to the following link to read more about the Hybrid deployment: <https://docs.konghq.com/enterprise/2.4.x/deployment/hybrid-mode/>
 
@@ -101,7 +101,7 @@ The Data Plane runs on an OpenShift Cluster.
 
 Considering the capabilities provided by the Kubernetes platform, running Data Planes on this platform delivers a powerful environment. Here are some capabilities leveraged by the Data Plane on Kubernetes:
 High Availability: One of the main Kubernetes' capabilities is "Self-Healing". If a "pod" crashes, Kubernetes takes care of it, reinitializing the "pod".
-Scalability/Elasticity: HPA ("Horizontal Pod Autoscaler") is the capability to initialize and terminate "pod" replicas based on previously defined policies. The policies define "thresholds" to tell Kubernetes the conditions where it should initiate a brand new "pod" replica or terminate a running one.
+Scalability/Elasticity: HPA ("Horizontal Pod Autoscaler") is the capability to initialize and terminate "pod" replicas based on previously defined policies. The policies define "thresholds" to tell Kubernetes the conditions where it should start a brand new "pod" replica or terminate a running one.
 Load Balancing: The Kubernetes Service notion defines an abstraction level on top of the "pod" replicas that might have been up or down (due HPA policies, for instance). Kubernetes keeps all the "pod" replicas hidden from the "callers" through Services.
 
 Important remark #1: this tutorial is intended to be used for labs and PoC only. There are many aspects and processes, typically implemented in production sites, not described here. For example: Digital Certificate issuing, Cluster monitoring, etc.
@@ -159,7 +159,7 @@ oc get clusteroperators
 NOTES:
 Check with [product life](https://access.redhat.com/support/policy/updates/errata/) cycle if we can use RHEL 8 or RHEL 9
 
-Create a new Red Hat Enterprise Linux 7 VM Instance with assigned tag `kong-konnect-cp`.
+Create a new Red Hat Enterprise Linux 7 VM Instance with the assigned tag `kong-konnect-cp`.
 
 ```bash
 export GCP_VM_NAME=kong-konnect-cp
@@ -256,6 +256,7 @@ Configure Environment and re-login to the session.
 ```bash
 echo "LANG=en_US.utf-8" | sudo tee -a /etc/environment
 echo "LC_ALL=en_US.utf-8" | sudo tee -a /etc/environment
+cat /etc/environment
 ```
 
 Install utilities
@@ -269,7 +270,7 @@ sudo pip3 install httpie
 Install Docker
 
 NOTES:
-We are using CentOS repo because Docker provide packages only for RHEL on s390x (IBM Z)
+We are using CentOS repo because Docker provides packages only for RHEL on s390x (IBM Z)
 
 [Reference](https://docs.docker.com/engine/install/centos/)
 
@@ -317,7 +318,9 @@ Shutting down the Portainer instance for security reasons
 
 Using the GCP VM’s public address, check the installation <http://$KONG_CP_URL:9000>
 
-Choose `Local` -> `Manage the local Docker environment`, we'll see its home page.
+Create a new password for the `admin` user and uncheck `Allow collection of anonymous statistics`.
+
+Choose `Local` -> `Manage the local Docker environment`, and we'll see its home page.
 
 ## Generating Private Key and Digital Certificate for CP/DP communications
 
@@ -325,6 +328,8 @@ Choose `Local` -> `Manage the local Docker environment`, we'll see its home page
 openssl req -new -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
   -keyout ./cluster.key -out ./cluster.crt \
   -days 1095 -subj "/CN=kong_clustering"
+export CERTIFICATE=$(readlink -e cluster.crt)
+export PRIVATE_KEY=$(readlink -e cluster.key)
 ```
 
 ## Configure PostgreSQL database
@@ -358,9 +363,15 @@ sudo docker run --rm --network kong-net --link kong-ee-database:kong-ee-database
     kong-ee kong migrations bootstrap
 ```
 
-## Configure Kong Control Plane
+Output:
 
-Replace `/home/claudio/cluster.crt` with path to the generated cert and private key.
+```bash
+<*> migrations processed
+<*> executed
+Database is up-to-date
+```
+
+## Configure Kong Control Plane
 
 ```bash
 sudo docker run -d --network kong-net --name kong-ee --link kong-ee-database:kong-ee-database \
@@ -398,8 +409,8 @@ sudo docker run -d --network kong-net --name kong-ee --link kong-ee-database:kon
     -p 8447:8447 \
     -p 8005:8005 \
     -p 8006:8006 \
-    -v /home/claudio/cluster.crt:/etc/cluster.crt:ro \
-    -v /home/claudio/cluster.key:/etc/cluster.key:ro \
+    -v $CERTIFICATE:/etc/cluster.crt:ro \
+    -v $PRIVATE_KEY:/etc/cluster.key:ro \
     kong-ee
 ```
 
@@ -411,6 +422,27 @@ http patch :8001/workspaces/default config:='{"portal": true}'
 
 ## Check Kong Admin API and Proxy ports
 
+⚠️ WARNING
+
+Port `8443` won't work with error:
+
+```bash
+http: error: SSLError: HTTPSConnectionPool(host='localhost', port=8443): 
+Max retries exceeded with url: / 
+(Caused by SSLError(SSLEOFError(8, 'EOF occurred in violation of protocol (_ssl.c:877)'),)) 
+while doing a GET request to URL: https://localhost:8443/
+```
+
+Port `8443` [takes](https://docs.konghq.com/enterprise/2.4.x/deployment/default-ports/) incoming HTTPS traffic from Consumers, and forwards it to upstream Services.
+
+Maybe it works **only with Consumers**, but I'm not sure, need double check.
+
+We have some mention from Kong docs (port `8000` have the same purpose, but only for HTTP)
+
+```text
+Notice that, although having the port 8000 exposed, we're not supposed to consume it, since this instance has been defined as a Control Plane:
+```
+
 ```bash
 http --verify=no https://localhost:8443
 http --verify=no https://localhost:8444
@@ -418,7 +450,7 @@ http --verify=no https://localhost:8444
 
 ## Restart container
 
-NOTES: Don't know why
+ℹ️ Don't know why we need it.
 
 ```bash
 sudo docker stop kong-ee
@@ -441,7 +473,7 @@ Output
 "2.4.1.1-enterprise-edition"
 ```
 
-Notice that, although having the port 8000 exposed, we're not supposed to consumed it, since this instance has been defined as a Control Plane:
+Notice that, although having the port 8000 exposed, we're not supposed to consume it, since this instance has been defined as a Control Plane:
 
 ```bash
 http $KONG_CP_URL:8000
@@ -464,18 +496,18 @@ Go to a local terminal and run the following command using `gcloud` compute comm
 
 NOTES:
 
-Replace `/home/claudio/` with correct path
+Replace `DESTINATION_PATH` with correct path
 
 ```bash
 gcloud compute scp \
     --project=$GCP_PROJECT_NAME \
-    --zone=$GCP_ZONE konnect-cp:/home/claudio/cluster.crt .
+    --zone=$GCP_ZONE konnect-cp:DESTINATION_PATH/cluster.crt .
 gcloud compute scp \
     --project=$GCP_PROJECT_NAME \
-    --zone=$GCP_ZONE konnect-cp:/home/claudio/cluster.key .
+    --zone=$GCP_ZONE konnect-cp:DESTINATION_PATH/cluster.key .
 ```
 
-You should see both files in your local laptop.
+You should see both files on your local laptop.
 
 ## Kubeconfig environment variable
 
@@ -548,7 +580,6 @@ Output:
 ```bash
 NAMESPACE               NAME                    DISPLAY               TYPE   PUBLISHER        AGE
 openshift-marketplace   operatorhubio-catalog   Community Operators   grpc   OperatorHub.io   2s
-openshift-marketplace   redhat-operators        Red Hat Operators     grpc   Red Hat          47m
 ```
 
 ## Create Subscription
@@ -650,11 +681,9 @@ autoscaling.metrics[0].resource.target.averageUtilization=75
 
 ## Apply the Kong declaration
 
-!!!!!!!!!!HUGE NOTES!!!!!!!!
+ℹ️ When `autoscaling` enabled deployment potentially will not work because of the [issue](https://github.com/Kong/kong-operator/pull/78)
 
-When `autoscaling` enabled deployment potentially will not work because of the [issue](https://github.com/Kong/kong-operator/pull/78)
-
-If so you need to add following permissions to the ClusterRole `kong-<some_symbols>` in OCP console and then apply `konnect-dp.yaml`
+If so, you need to add following permissions to the ClusterRole `kong-<some_symbols>` in OCP console and then apply `konnect-dp.yaml`
 
 ```yaml
 - apiGroups:
@@ -752,7 +781,7 @@ http $KONG_CP_URL:8001/services/httpbinservice/routes name='httpbinroute' paths:
 
 ## Checking the Proxy
 
-The Route previously deployed, and already available for consumption in the first Data Plane has been published to the Data Plane.
+The Route previously deployed and already available for consumption in the first Data Plane has been published to the Data Plane.
 Use the Load Balancer created during the deployment to consume the Kong Route:
 
 ```bash
@@ -815,10 +844,10 @@ oc delete project kong
 
 !!!!!!!!!! HuGE NOTES !!!!!!!!!!!!
 
-HPA enabled in our case so maybe we can skip manual scaling. It will depend on `fortio` parameters.
-To check HPA we need to reduce `averageUtilization` on HPA to `10` for example.
+HPA enabled in our case, so maybe we can skip manual scaling. It will depend on `fortio` parameters.
+To check HPA we need to reduce `averageUtilization` on HPA to `10`, for example.
 
-To produce requests to our service we're going to use [Fortio](https://www.fortio.org). Install `Fortio` in accordance with the instructions for the operating system used.
+To produce requests for our service, we're going to use [Fortio](https://www.fortio.org). Install `Fortio` under the instructions for the operating system used.
 
 A simple load test can be done with the following command. Notice that we're using the Public IP provided by GCP.
 
@@ -943,7 +972,7 @@ This parameter is needed in the OAuth Authorization Code Grant. Notice we're usi
 
 Click on `Save`. The `Credentials` option is shown in the horizontal menu.
 
-Click on `Credentials` and take note of the `client_secret`.
+Click on `Credentials` and note of the `client_secret`.
 
 ```bash
 export KEYCLOAK_CLIENT_SECRET=<OUT_VALUE_HERE>
@@ -962,7 +991,7 @@ Reference Architecture
 
 ![OIDC Reference Architecture](images/ref-arch-oidc.png)
 
-We're going to apply the OIDC plugin to protect a specific route (`/oidcroute`) with the Authorization Code Grant. That is, when the user tries to consume the route he is redirected to Keycloak login page in order to get authenticated. With a successful authentication and a token, the user is redirected back to the original endpoint that includes the route and then Kong allows the route consumption.
+We're going to apply the OIDC plugin to protect a specific route (`/oidcroute`) with the Authorization Code Grant. When the user tries to consume the route he is redirected to Keycloak login page in order to get authenticated. With a successful authentication and a token, the user is redirected back to the original endpoint that includes the route and then Kong allows the route consumption.
 
 ## Authorization Code
 
@@ -1082,7 +1111,7 @@ X-Kong-Upstream-Latency: 137
 }
 ```
 
-If you provide wrong credentials you get an error:
+If you provide the wrong credentials you get an error:
 
 ```bash
 http http://$KONG_DP_URL/oidcroute2/get -a kong_id:2e7c9d11-9076-4389-b070-e10cea7dc8feasdadasda
@@ -1206,7 +1235,7 @@ http $KONG_DP_URL/cache/get
 
 # Elasticsearch, Kibana and Logstash
 
-NOTES: Should we suggest to use native OCP Operator fit that?
+NOTES: Should we suggest using native OCP Operator fit that?
 
 <https://github.com/elastic/helm-charts>
 
