@@ -6,7 +6,8 @@
   - [Checking the cluster installation](#checking-the-cluster-installation)
 - [Kong Konnect Enterprise Control Plane](#kong-konnect-enterprise-control-plane)
   - [Portainer installation](#portainer-installation)
-  - [Portainer checking](#portainer-checking)
+  - [Checking Portainer container](#checking-portainer-container)
+  - [Portainer UI checking](#portainer-ui-checking)
   - [Generating Private Key and Digital Certificate for CP/DP communications](#generating-private-key-and-digital-certificate-for-cpdp-communications)
   - [Configure PostgreSQL database](#configure-postgresql-database)
   - [Run bootstrapping](#run-bootstrapping)
@@ -294,12 +295,27 @@ sudo docker run --name portainer -d -p 9000:9000 \
     -v portainer_data:/data portainer/portainer-ce:2.6.0-alpine
 ```
 
-## Portainer checking
+## Checking Portainer container
 
-Using the GCP VM’s public address, check the installation <http://$KONG_CP_URL:9000>
+```bash
+sudo docker ps
+```
+
+⚠️ WARNING
 
 At the first access, Portainer asks to define the admin's password.
 We have 5 minutes to finish the process, otherwise portainer container should be destroyed and created again.
+
+Error log if we do not set a password in 5 minutes
+
+```bash
+[FATAL] [internal,init] No administrator account was created in 5.000000 mins. 
+Shutting down the Portainer instance for security reasons
+```
+
+## Portainer UI checking
+
+Using the GCP VM’s public address, check the installation <http://$KONG_CP_URL:9000>
 
 Choose `Local` -> `Manage the local Docker environment`, we'll see its home page.
 
