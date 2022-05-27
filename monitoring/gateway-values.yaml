@@ -1,0 +1,84 @@
+admin:
+  enabled: true
+  http:
+    enabled: true
+  type: ClusterIP
+cluster:
+  enabled: true
+  tls:
+    containerPort: 8005
+    enabled: true
+    servicePort: 8005
+clustertelemetry:
+  enabled: true
+  tls:
+    containerPort: 8006
+    enabled: true
+    servicePort: 8006
+enterprise:
+  enabled: true
+  license_secret: kong-enterprise-license
+  portal:
+    enabled: true
+  rbac:
+    admin_gui_auth_conf_secret: admin-gui-session-conf
+    enabled: false
+    session_conf_secret: kong-session-config
+  smtp:
+    enabled: false
+env:
+  cluster_cert: /etc/secrets/kong-cluster-cert/tls.crt
+  cluster_cert_key: /etc/secrets/kong-cluster-cert/tls.key
+  database: postgres
+  password:
+    valueFrom:
+      secretKeyRef:
+        key: password
+        name: kong-enterprise-superuser-password
+  portal_gui_protocol: http
+  #role: control_plane
+  pg_user: kong
+  pg_password: kong123
+  pg_host: postgresql
+image:
+  repository: kong/kong-gateway
+  tag: 2.8
+ingressController:
+  enabled: true
+  env:
+    enable_reverse_sync: true
+    kong_admin_token:
+      valueFrom:
+        secretKeyRef:
+          key: password
+          name: kong-enterprise-superuser-password
+    sync_period: 1m
+  image:
+    repository: kong/kubernetes-ingress-controller
+    tag: 2.3-redhat
+  installCRDs: false
+manager:
+  enabled: true
+  type: ClusterIP
+portal:
+  enabled: true
+  http:
+    enabled: true
+  type: ClusterIP
+portalapi:
+  enabled: true
+  http:
+    enabled: true
+  type: ClusterIP
+postgresql:
+  enabled: false
+proxy:
+  enabled: true
+# status:
+#   enabled: true
+#   http:
+#     enabled: true
+#     containerPort: 8100
+#     parameters: []
+secretVolumes:
+- kong-cluster-cert
