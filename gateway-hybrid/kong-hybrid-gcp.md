@@ -1,8 +1,7 @@
 - [Kong Konnect Enterprise Hybrid Mode](#kong-konnect-enterprise-hybrid-mode)
   - [Reference Architecture](#reference-architecture)
-- [OpenShift Installation and Google Cloud settings](#openshift-installation-and-google-cloud-settings)
+- [Google Cloud settings and OpenShift Installation](#google-cloud-settings-and-openshift-installation)
   - [Creating the OpenShift Cluster](#creating-the-openshift-cluster)
-  - [Quotas](#quotas)
   - [Checking the cluster installation](#checking-the-cluster-installation)
 - [Kong Konnect Enterprise Control Plane](#kong-konnect-enterprise-control-plane)
   - [Portainer installation](#portainer-installation)
@@ -25,7 +24,6 @@
   - [Create Catalog Source](#create-catalog-source)
   - [Check Catalog Source](#check-catalog-source)
   - [Create Subscription](#create-subscription)
-  - [Download Kong Helm Charts](#download-kong-helm-charts)
   - [Configure Kong Konnect Enterprise Chart](#configure-kong-konnect-enterprise-chart)
   - [Apply the Kong declaration](#apply-the-kong-declaration)
   - [Checking the deployment](#checking-the-deployment)
@@ -108,7 +106,7 @@ Important remark #1: this tutorial is intended to be used for labs and PoC only.
 
 Important remark #2: the deployment is based on Kong Konnect Enterprise. Please contact Kong to get a Kong Konnect Enterprise trial license to run this lab.
 
-# OpenShift Installation and Google Cloud settings
+# Google Cloud settings and OpenShift Installation
 
 Login to gcloud or use Cloud Shell.
 
@@ -135,13 +133,12 @@ ssh-add ~/.ssh/google_rsa
 
 ## Creating the OpenShift Cluster
 
-Use Openshift docs for GCP
+⚠️ WARNING
 
-<https://docs.openshift.com/container-platform/latest/installing/installing_gcp/installing-gcp-default.html#installing-gcp-default>
+You must use OpenShift version <=4.8 because `apiextensions.k8s.io/v1beta1` [removed](https://docs.openshift.com/container-platform/4.9/release_notes/ocp-4-9-release-notes.html#ocp-4-9-removed-features) from version 4.9 and higher.
+This guide was tested on version 4.8.
 
-## Quotas
-
-You might need to set new quotas for Disks. Go to Quotas on the IAM & Admin page
+Please, use [Openshift docs](https://docs.openshift.com/container-platform/4.8/installing/installing_gcp/installing-gcp-default.html) for installing a cluster on GCP.
 
 ## Checking the cluster installation
 
@@ -170,8 +167,8 @@ gcloud compute instances create $GCP_VM_NAME \
       --network-interface=network-tier=PREMIUM,subnet=default \
       --maintenance-policy=MIGRATE \
       --provisioning-model=STANDARD \
-      --tags=kong-connect-cp,portainer \
-      --create-disk=auto-delete=yes,boot=yes,device-name=kong-konnect-cp,image=projects/rhel-cloud/global/images/rhel-7-v20220519,mode=rw,size=20,type=projects/fsi-env2/zones/$GCP_ZONE/diskTypes/pd-balanced \
+      --tags=$GCP_VM_NAME \
+      --create-disk=auto-delete=yes,boot=yes,device-name=$GCP_VM_NAME,image=projects/rhel-cloud/global/images/rhel-7-v20220519,mode=rw,size=20,type=projects/fsi-env2/zones/$GCP_ZONE/diskTypes/pd-balanced \
       --no-shielded-secure-boot \
       --shielded-vtpm \
       --shielded-integrity-monitoring \
@@ -195,7 +192,7 @@ Allow the following firewall rules for Control Plane VM
 - 9000 Portainer UI
 
 ```bash
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-admin-api \
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-admin-api-$GCP_VM_NAME \
     --description="Admin API HTTP" \
     --direction=INGRESS \
     --priority=1000 \
@@ -203,9 +200,9 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-admin-api 
     --action=ALLOW \
     --rules=tcp:8001 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=kong-connect-cp
+    --target-tags=$GCP_VM_NAME
 
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-manager-gui \
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-manager-gui-$GCP_VM_NAME \
     --description="Kong Manager (GUI) HTTP" \
     --direction=INGRESS \
     --priority=1000 \
@@ -213,9 +210,9 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kong-manager-gu
     --action=ALLOW \
     --rules=tcp:8002 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=kong-connect-cp
+    --target-tags=$GCP_VM_NAME
 
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-hybrid \
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-hybrid-$GCP_VM_NAME \
     --description="Traffic from Data Planes" \
     --direction=INGRESS \
     --priority=1000 \
@@ -223,9 +220,9 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-hybrid \
     --action=ALLOW \
     --rules=tcp:8005 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=kong-connect-cp
+    --target-tags=$GCP_VM_NAME
 
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-telemetry \
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-telemetry-$GCP_VM_NAME \
     --description="Vitals telemetry data from Data Planes" \
     --direction=INGRESS \
     --priority=1000 \
@@ -233,9 +230,9 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create cp-dp-telemetry
     --action=ALLOW \
     --rules=tcp:8006 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=kong-connect-cp
+    --target-tags=$GCP_VM_NAME
 
-gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create portainer-ui-api \
+gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create portainer-ui-api-$GCP_VM_NAME \
     --description="Portainer UI and API" \
     --direction=INGRESS \
     --priority=1000 \
@@ -243,7 +240,7 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create portainer-ui-ap
     --action=ALLOW \
     --rules=tcp:9000 \
     --source-ranges=0.0.0.0/0 \
-    --target-tags=portainer
+    --target-tags=$GCP_VM_NAME
 ```
 
 Connecting to the VM
@@ -364,9 +361,9 @@ sudo docker run --rm --network kong-net --link kong-ee-database:kong-ee-database
     kong-ee kong migrations bootstrap
 ```
 
-Output:
+Output
 
-```bash
+```text
 <*> migrations processed
 <*> executed
 Database is up-to-date
@@ -390,7 +387,7 @@ sudo docker run -d --network kong-net --name kong-ee --link kong-ee-database:kon
     -e "KONG_PORTAL=on" \
     -e "KONG_PORTAL_GUI_PROTOCOL=http" \
     -e "KONG_PORTAL_GUI_HOST=$KONG_CP_URL:8003" \
-    -e "KONG_PORTAL_SESSION_CONF={\"cookie_name\": \"portal_session\", \"secret\": \"portal_secret\", \"storage\":\"kong\", \"cookie_secure\": false}" \
+    -e "KONG_PORTAL_SESSION_CONF={\"cookie_name\": \"portal_session\", \"secret\": \"kong\", \"storage\":\"kong\", \"cookie_secure\": false}" \
     -e "KONG_LICENSE_DATA=$KONG_LICENSE_DATA" \
     -e "KONG_ROLE=control_plane" \
     -e "KONG_CLUSTER_LISTEN=0.0.0.0:8005" \
@@ -470,7 +467,7 @@ http $KONG_CP_URL:8001 | jq .version
 
 Output
 
-```bash
+```text
 "2.4.1.1-enterprise-edition"
 ```
 
@@ -480,9 +477,9 @@ Notice that, although having the port 8000 exposed, we're not supposed to consum
 http $KONG_CP_URL:8000
 ```
 
-Output:
+Output
 
-```bash
+```text
 http: error: ConnectionError: HTTPConnectionPool(host='$KONG_CP_URL', port=8000): 
 Max retries exceeded with url: / (Caused by NewConnectionError
 ('<urllib3.connection.HTTPConnection object at 0x7f585bb74198>: Failed to establish a new connection: 
@@ -576,9 +573,9 @@ EOF
 oc get catalogsource --all-namespaces | grep 'operatorhubio-catalog'
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAMESPACE               NAME                    DISPLAY               TYPE   PUBLISHER        AGE
 openshift-marketplace   operatorhubio-catalog   Community Operators   grpc   OperatorHub.io   2s
 ```
@@ -600,6 +597,17 @@ spec:
 EOF
 ```
 
+```bash
+oc get subscriptions.operators.coreos.com my-kong -n openshift-operators
+```
+
+Output:
+
+```text
+NAME      PACKAGE   SOURCE                  CHANNEL
+my-kong   kong      operatorhubio-catalog   alpha
+```
+
 If you want to delete `Subscription` and `CatalogSource` run the following commands:
 
 ```bash
@@ -614,36 +622,18 @@ After install, watch your operator come up using the command.
 oc get csv -n openshift-operators
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME          DISPLAY         VERSION   REPLACES      PHASE
 kong.v0.8.0   Kong Operator   0.8.0     kong.v0.7.0   Succeeded
 ```
 
-## Download Kong Helm Charts
-
-```bash
-mkdir KongChart
-cd KongChart
-helm fetch kong/kong
-tar xvf *
-cd kong
-```
-
 ## Configure Kong Konnect Enterprise Chart
 
-Copy the original `values.yaml` provided by the Kong to `konnect-dp.yaml`
+ℹ️ We will use `konnect-dp.yaml` as example of deployable Kong instance.
 
-```bash
-cp values.yaml konnect-dp.yaml
-```
-
-Use `konnect-dp.yaml` as an example or include the following settings in `konnect-dp.yaml`.
-
-```bash
-sed -i "s/KONG_CP_URL/$KONG_CP_URL/" konnect-dp.yaml
-```
+The `konnect-dp.yaml` contains following settings:
 
 ```yaml
 env.role: data_plane
@@ -680,21 +670,34 @@ autoscaling.metrics[0].resource.target.type=Utilization
 autoscaling.metrics[0].resource.target.averageUtilization=75
 ```
 
+Run the following command to replace `$KONG_CP_URL`:
+
+```bash
+sed -i "s/KONG_CP_URL/$KONG_CP_URL/" konnect-dp.yaml
+```
+
 ## Apply the Kong declaration
 
-ℹ️ When `autoscaling` enabled deployment potentially will not work because of the [issue](https://github.com/Kong/kong-operator/pull/78)
+ℹ️ `autoscaling` enabled deployment won't work because of the [issue](https://github.com/Kong/kong-operator/pull/78)
 
-If so, you need to add following permissions to the ClusterRole `kong-<some_symbols>` in OCP console and then apply `konnect-dp.yaml`
+You can apply the following command or manually add permissions to the ClusterRole `kong.v0.8.0-<some_symbols>` in OCP console.
+
+```bash
+oc patch clusterrole $(oc get clusterrole | awk '/kong.v0.8.0/{ print $1 }') --type='json' -p='[{"op": "add", "path": "/rules/0", "value":{ "apiGroups": ["autoscaling"], "resources": ["horizontalpodautoscalers"], "verbs": ["get", "list","create","delete"]}}]'
+```
+
+Added permissions
 
 ```yaml
-- apiGroups:
-  - "autoscaling"
-  resources:
-  - horizontalpodautoscalers
-  verbs:
+- verbs:
   - get
+  - list
   - create
   - delete
+  apiGroups:
+    - "autoscaling"
+  resources:
+    - horizontalpodautoscalers
 ```
 
 ```bash
@@ -707,9 +710,9 @@ oc apply -f konnect-dp.yaml
 oc get kong -n $OCP_PROJECT_NAME
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME         AGE
 konnect-dp   6m30s
 ```
@@ -720,9 +723,9 @@ konnect-dp   6m30s
 oc get pod -n $OCP_PROJECT_NAME
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME                               READY   STATUS    RESTARTS   AGE
 konnect-dp-kong-5956694595-vrw8j   1/1     Running   0          16s
 ```
@@ -731,16 +734,16 @@ konnect-dp-kong-5956694595-vrw8j   1/1     Running   0          16s
 oc get service -n $OCP_PROJECT_NAME
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME                    TYPE           CLUSTER-IP      EXTERNAL-IP     PORT(S)                      AGE
 konnect-dp-kong-proxy   LoadBalancer   172.30.185.98   35.235.106.32   80:31786/TCP,443:30831/TCP   68s
 ```
 
 ## Checking the Data Plane from the Control Plane
 
-The Control Plane shoud have deployed Data Planes
+The Control Plane should have deployed Data Planes
 
 ```bash
 http $KONG_CP_URL:8001/clustering/status
@@ -748,7 +751,7 @@ http $KONG_CP_URL:8001/clustering/status
 
 Output
 
-```bash
+```text
 HTTP/1.1 200 OK
 Access-Control-Allow-Origin: *
 Connection: keep-alive
@@ -783,16 +786,25 @@ http $KONG_CP_URL:8001/services/httpbinservice/routes name='httpbinroute' paths:
 ## Checking the Proxy
 
 The Route previously deployed and already available for consumption in the first Data Plane has been published to the Data Plane.
-Use the Load Balancer created during the deployment to consume the Kong Route:
+Use the Load Balancer created during the deployment to consume the Kong Route.
+
+For Data Plane deployed on **AWS** please use the following command
 
 ```bash
-export KONG_DP_URL=<REPLACE_WITH_DP_EXTERNAL_IP>
+export KONG_DP_URL=$(oc get service konnect-dp-kong-proxy -n $OCP_PROJECT_NAME --output jsonpath='{.status.loadBalancer.ingress[0].hostname}')
 http $KONG_DP_URL/httpbin/get
 ```
 
-Output:
+For Data Plane deployed on **GCP** please use the following command
 
 ```bash
+export KONG_DP_URL=$(oc get service konnect-dp-kong-proxy -n $OCP_PROJECT_NAME --output jsonpath='{.status.loadBalancer.ingress[0].ip}')
+http $KONG_DP_URL/httpbin/get
+```
+
+Output
+
+```text
 HTTP/1.1 200 OK
 Access-Control-Allow-Credentials: true
 Access-Control-Allow-Origin: *
@@ -843,7 +855,7 @@ oc delete project kong
 
 ## Scaling the Deployment
 
-!!!!!!!!!! HuGE NOTES !!!!!!!!!!!!
+⚠️ WARNING
 
 HPA enabled in our case, so maybe we can skip manual scaling. It will depend on `fortio` parameters.
 To check HPA we need to reduce `averageUtilization` on HPA to `10`, for example.
@@ -862,7 +874,7 @@ oc get deployment
 
 Output
 
-```bash
+```text
 NAME              READY   UP-TO-DATE   AVAILABLE   AGE
 konnect-dp-kong   1/1     1            1           38m
 ```
@@ -884,7 +896,7 @@ oc get pod -n $OCP_PROJECT_NAME
 
 Output
 
-```bash
+```text
 NAME                               READY   STATUS    RESTARTS   AGE
 konnect-dp-kong-5cf4696db7-hdmlc   1/1     Running   0          4m26s
 konnect-dp-kong-5cf4696db7-kv6gd   1/1     Running   0          4m26s
@@ -918,21 +930,21 @@ Checking the installation
 oc get pod -n keycloak
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME                READY   STATUS    RESTARTS   AGE
 keycloak-1-deploy   1/1     Running   0          37s
-keycloak-1-wwmlm    0/1     Running   0          31s
+keycloak-1-wwmlm    1/1     Running   0          31s
 ```
 
 ```bash
 oc get service -n keycloak
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME       TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
 keycloak   ClusterIP   172.30.86.124   <none>        8443/TCP   19s
 ```
@@ -941,9 +953,9 @@ keycloak   ClusterIP   172.30.86.124   <none>        8443/TCP   19s
 oc get route -n keycloak
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME       HOST/PORT                                                PATH   SERVICES   PORT    TERMINATION   WILDCARD
 keycloak   keycloak-keycloak.apps.kongcluster1.kong-acquaviva.com          keycloak   <all>   passthrough   None
 ```
@@ -1009,9 +1021,9 @@ The Route can be consumed since it doesn't have the plugin enabled.
 http $KONG_DP_URL/oidcroute/get
 ```
 
-Output:
+Output
 
-```bash
+```text
 HTTP/1.1 200 OK
 Access-Control-Allow-Credentials: true
 Access-Control-Allow-Origin: *
@@ -1078,9 +1090,9 @@ Consume the Route with `client_id` and `client_secret`
 http $KONG_DP_URL/oidcroute2/get -a kong_id:<CLIENT_SECRET>
 ```
 
-Output:
+Output
 
-```bash
+```text
 HTTP/1.1 200 OK
 Access-Control-Allow-Credentials: true
 Access-Control-Allow-Origin: *
@@ -1118,9 +1130,9 @@ If you provide the wrong credentials you get an error:
 http http://$KONG_DP_URL/oidcroute2/get -a kong_id:2e7c9d11-9076-4389-b070-e10cea7dc8feasdadasda
 ```
 
-Output:
+Output
 
-```bash
+```text
 HTTP/1.1 401 Unauthorized
 Connection: keep-alive
 Content-Length: 26
@@ -1192,9 +1204,9 @@ EOF
 oc get pod
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME                    READY   STATUS    RESTARTS   AGE
 redis-fd794cd65-mqxlb   1/1     Running   0          46s
 ```
@@ -1203,9 +1215,9 @@ redis-fd794cd65-mqxlb   1/1     Running   0          46s
 oc get service
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAME    TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
 redis   ClusterIP   172.30.114.146   <none>        6379/TCP   56s
 ```
@@ -1366,9 +1378,9 @@ helm install kibana elastic/kibana -n elk --set service.type=LoadBalancer
 oc get pod -n elk
 ```
 
-Output:
+Output
 
-```bash
+```text
 NAMESPACE     NAME                                   READY   STATUS      RESTARTS   AGE
 elk           elasticsearch-master-0                 1/1     Running     0          3h38m
 elk           kibana-kibana-54c46c54d6-dbbgm         1/1     Running     0          120m
@@ -1381,7 +1393,7 @@ oc get service --all-namespaces
 
 Output
 
-```bash
+```text
 elk           elasticsearch-master            ClusterIP      10.100.214.23    <none>                                                                       9200/TCP,9300/TCP               3h38m
 elk           elasticsearch-master-headless   ClusterIP      None             <none>                                                                       9200/TCP,9300/TCP               3h38m
 elk           kibana-kibana                   LoadBalancer   10.100.211.208   ac074ff862ed646f183f0477f92911dd-1990565081.eu-central-1.elb.amazonaws.com   5601:30493/TCP                  121m
@@ -1484,9 +1496,9 @@ NOTES: AdoptOpenJDK is no longer supported and it is recommended that all users 
 jdk -version
 ```
 
-Output:
+Output
 
-```bash
+```text
 openjdk version "1.8.0_292"
 OpenJDK Runtime Environment (AdoptOpenJDK)(build 1.8.0_292-b10)
 OpenJDK 64-Bit Server VM (AdoptOpenJDK)(build 25.292-b10, mixed mode)
@@ -1510,9 +1522,9 @@ mvn spring-boot:run
 http :8080/camel/numbertowords/737373
 ```
 
-Output:
+Output
 
-```bash
+```text
 HTTP/1.1 200 OK
 Access-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type
 Access-Control-Allow-Methods: GET, HEAD, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH
@@ -1538,9 +1550,9 @@ Replace domain with necessary value.
 http rest-soap-transformation-fuse-soap-rest-proxy.apps.kongcluster1.kong-acquaviva.com/camel/numbertowords/333
 ```
 
-Output:
+Output
 
-```bash
+```text
 HTTP/1.1 200 OK
 Access-Control-Allow-Headers: Origin, Accept, X-Requested-With, Content-Type
 Access-Control-Allow-Methods: GET, HEAD, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH
