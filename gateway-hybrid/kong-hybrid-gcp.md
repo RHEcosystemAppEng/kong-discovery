@@ -683,7 +683,7 @@ sed -i "s/KONG_CP_URL/$KONG_CP_URL/" konnect-dp.yaml
 You can apply the following command or manually add permissions to the ClusterRole `kong.v0.8.0-<some_symbols>` in OCP console.
 
 ```bash
-oc patch clusterrole $(oc get clusterrole | awk '/kong.v0.8.0/{ print $1 }') --type='json' -p='[{"op": "add", "path": "/rules/0", "value":{ "apiGroups": ["autoscaling"], "resources": ["horizontalpodautoscalers"], "verbs": ["get", "list","create","delete"]}}]'
+oc patch clusterrole $(oc get clusterrole | awk '/kong.v0.8.0/{ print $1 }') --type='json' -p='[{"op": "add", "path": "/rules/0", "value":{ "apiGroups": ["autoscaling"], "resources": ["horizontalpodautoscalers"], "verbs": ["get", "list","watch","create","delete"]}}]'
 ```
 
 Added permissions
@@ -692,6 +692,7 @@ Added permissions
 - verbs:
   - get
   - list
+  - watch
   - create
   - delete
   apiGroups:
