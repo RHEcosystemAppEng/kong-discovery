@@ -488,24 +488,8 @@ Max retries exceeded with url: / (Caused by NewConnectionError
 
 # Kong Konnect Enterprise Data Plane - OpenShift
 
-The OpenShift Data Plane will use the same certificate/key file pair issued before. Copy the certificate/key file pair from Control Plane to local laptop and then copy them to Data Plane.
-
-Go to a local terminal and run the following command using `gcloud` compute command:
-
-NOTES:
-
-Replace `DESTINATION_PATH` with correct path
-
-```bash
-gcloud compute scp \
-    --project=$GCP_PROJECT_NAME \
-    --zone=$GCP_ZONE konnect-cp:DESTINATION_PATH/cluster.crt .
-gcloud compute scp \
-    --project=$GCP_PROJECT_NAME \
-    --zone=$GCP_ZONE konnect-cp:DESTINATION_PATH/cluster.key .
-```
-
-You should see both files on your local laptop.
+The OpenShift Data Plane will use the same certificate/key file pair issued before.
+Copy the certificate/key file pair from Control Plane to local laptop.
 
 ## Kubeconfig environment variable
 
@@ -863,7 +847,7 @@ To check HPA we need to reduce `averageUtilization` on HPA to `10`, for example.
 
 To produce requests for our service, we're going to use [Fortio](https://www.fortio.org). Install `Fortio` under the instructions for the operating system used.
 
-A simple load test can be done with the following command. Notice that we're using the Public IP provided by GCP.
+A simple load test can be done with the following command. Notice that we're using the Data Plane public IP/hostname.
 
 ```bash
 fortio load -c 100 -qps 2000 -t 0 http://$KONG_DP_URL/httpbin/get
