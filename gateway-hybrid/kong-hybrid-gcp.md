@@ -168,7 +168,7 @@ gcloud compute instances create $GCP_VM_NAME \
       --maintenance-policy=MIGRATE \
       --provisioning-model=STANDARD \
       --tags=$GCP_VM_NAME \
-      --create-disk=auto-delete=yes,boot=yes,device-name=$GCP_VM_NAME,image=projects/rhel-cloud/global/images/rhel-7-v20220519,mode=rw,size=20,type=projects/fsi-env2/zones/$GCP_ZONE/diskTypes/pd-balanced \
+      --create-disk=auto-delete=yes,boot=yes,device-name=$GCP_VM_NAME,image=projects/rhel-cloud/global/images/rhel-7-v20220519,mode=rw,size=20,type=projects/$GCP_PROJECT_NAME/zones/$GCP_ZONE/diskTypes/pd-balanced \
       --no-shielded-secure-boot \
       --shielded-vtpm \
       --shielded-integrity-monitoring \
