@@ -1,8 +1,13 @@
-# Kong Gateway on MicroShift
+# Install Gateway CP/DP on MicroShift
+With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In this document we will deploy the Kong Gateway with the Control Plane and Data Plane in two distict namespaces on MicroShift to validate that it performs and works as expected. This document has been tested on `Fedora 35`.
+
+**TOC**  
 - [Prerequisites](#prerequisites)
 - [Install MicroShift](#install-microshift)
-- [Deploy Kong Gateway](#deploy-kong-gateway)
+- [Deploy Sample App](#deploy-sample-app)
+- [Deploy Kong Gateway Control Plane](#deploy-kong-gateway-control-plane)
 - [Clean Up](#clean-up)
+- [Resources](#resources)
 
 ## Prerequisites
 Before starting, make sure you have at least:
@@ -60,47 +65,9 @@ docker/podman pause microshift
 docker/podman unpause microshift
 ```
 
-## Deploy Kong Gateway
-Create a namespace
+## Deploy Sample App
+We start by deploying a sample app that we will use with Kong Gateway.
 ```
-oc new-project kong
-```
-
-Create a secret from the license
-```
-oc create secret generic kong-enterprise-license --from-file=./license -n kong 
-```
-
-Deploy the Gateway on OpenShift
-```
-oc apply -f https://bit.ly/k4k8s-enterprise-install
-```
-
-Wait for the ingress pod to be ready
-```
-oc wait --for=condition=ready --timeout=90s pod -l app=ingress-kong -n kong
-```
-
-Patch the kong-proxy service to type `ClusterIP` since a Load Balancer is not available.
-```
-oc patch svc/kong-proxy -p '{"spec":{"type":"NodePort"}}' -n kong
-```
-
-Expose the proxy service
-```
-oc expose svc/kong-proxy -n kong --hostname=localhost.local
-```
-
-Check the Proxy
-```
-export KONG_DP_PROXY_URL=$(oc get route kong-proxy -o jsonpath='{.spec.host}' -n kong)
-http $KONG_DP_PROXY_URL
-```
-
-
-- Deploy sample application
-
-```bash
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
@@ -140,20 +107,144 @@ spec:
         - containerPort: 5000
 EOF
 ```
+output
+```
+service/sample created
+deployment.apps/sample created
+```
+
+wait for app to be ready
+```
+kubectl wait --for=condition=ready pod -l app=sample --timeout=120s
+```
+output
+```
+pod/sample-76db6bb547-klztz condition met
+```
+
+## Deploy Kong Gateway Control Plane
+As usual, create the namespace and the secret with the license.
+
+```bash
+oc new-project kong
+oc create secret generic kong-enterprise-license --from-file=license=license.json -n kong
+```
+
+Generate a certificate that will be used to expose the TLS. Use that certificate to create a secret
+
+```bash
+openssl req -new -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
+  -keyout ./cluster.key -out ./cluster.crt \
+  -days 1095 -subj "/CN=kong_clustering"
+oc create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster.key -n kong 
+```
+
+Deploy the Control Plane from the Helm Chart
+```yaml
+cat <<EOF> values.yaml
+ingressController:
+  enabled: true
+  installCRDs: false
+  image:
+    tag: 2.3.1
+image:
+  tag: 2.8.0.0-alpine
+env:
+  database: postgres
+  role: control_plane
+  cluster_cert: /etc/secrets/kong-cluster-cert/tls.crt
+  cluster_cert_key: /etc/secrets/kong-cluster-cert/tls.key
+cluster:
+  enabled: true
+  tls:
+    enabled: true
+    servicePort: 8005
+    containerPort: 8005
+clustertelemetry:
+  enabled: true
+  tls:
+    enabled: true
+    servicePort: 8006
+    containerPort: 8006
+proxy:
+  enabled: true
+  type: ClusterIP
+secretVolumes: 
+  - kong-cluster-cert
+admin:
+  enabled: true
+  http:
+    enabled: true
+  type: ClusterIP
+enterprise:
+  enabled: true
+  license_secret: kong-enterprise-license
+  portal:
+    enabled: false
+  rbac:
+    enabled: false
+  smtp:
+    enabled: false
+manager:
+  enabled: true
+  type: ClusterIP
+postgresql:
+  enabled: true
+  auth:
+    username: kong
+    password: kong
+    database: kong
+EOF
+helm install kong -n kong kong/kong -f values.yaml
+```
+
+Wait for the control plane pod to be ready
+```
+oc wait --for=condition=ready --timeout=90s pod -l app=ingress-kong -n kong
+```
+
+
+Expose the Control Plane Services for `admin` and `manager`
+```bash
+oc expose svc/kong-kong-admin --port=kong-admin --hostname=kong-admin.microshift.io -n kong 
+oc expose svc/kong-kong-manager --port=kong-manager --hostname=kong-manager.microshift.io -n kong
+```
+
+Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
+```bash
+export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
+sudo sh -c  'echo $IP kong-manager.microshift.io kong-admin.microshift.io >> /etc/hosts"
+```
+
+Validate `/etc/hosts` has been properly updated, expect to see kong-manager and kong-admin
+```bash
+tail -1 /etc/hosts
+```
+
+Validate the installed version
+```bash
+http $(oc get route kong-kong-admin -ojsonpath='{.spec.host}')
+```
+
+output
+```text
+
+```
 
 ## Clean Up
 <details>
   <summary>Linux</summary>
+  Restore `/etc/hosts`:
+  ```bash
+  sudo sh -c "sed -s '/^${IP}/d' /etc/hosts" > temp_hosts
+  sudo mv temp_hosts /etc/hosts
+  ```
   Prune Docker if you don't have anything important running:
 
   ```bash
-  sudo podman system prune -a -f
-  ```
-
-  Prune the volumes if do not need them:
-
-  ```bash
-  sudo podman volume prune -f
+  sudo podman rm -f microshift
+  sudo podman rmi -f quay.io/microshift/microshift-aio
+  sudo podman volume rm microshift-data
   ```
 </details>
 
@@ -162,12 +253,11 @@ EOF
   Prune Docker if you don't have anything important running:
 
   ```bash
-  docker system prune -a -f
-  ```
-
-  Prune the volumes if do not need them:
-
-  ```bash
-  docker volume prune -f
+  sudo docker rm -f microshift
+  sudo docker rmi -f quay.io/microshift/microshift-aio
+  sudo docker volume rm microshift-data
   ```
 </details>
+
+## Resources
+- [Kong Gateway Installation](https://docs.konghq.com/gateway/latest/install-and-run/kubernetes/)
