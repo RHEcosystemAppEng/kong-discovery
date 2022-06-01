@@ -19,6 +19,7 @@ Before starting, make sure you have at least:
 - 2 CPU cores
 - 2GB of RAM
 - 1GB of free storage space for MicroShift 
+- httpie, jq, helm3
 
 ## Install MicroShift
 The [installation process](https://microshift.io/docs/getting-started/#using-microshift-for-application-development) for MicroShift varies across different Operating Systems, nevertheless, a container runtime is a requirement regardless of the underlying operating system.
@@ -183,7 +184,7 @@ oc expose svc/kong-kong-manager --port=kong-manager --hostname=kong-manager.micr
 oc create route passthrough kong-kong-manager-tls --port=kong-manager-tls --hostname=kong-manager-tls.microshift.io --service=kong-kong-manager -n kong 
 ```
 
-Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
+Explain to our local node how to resolve requests to our routes:
 ```bash
 export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
 sudo sh -c  "echo $IP kong-manager.microshift.io kong-manager-tls.microshift.io kong-admin.microshift.io kong-admin-tls.microshift.io >> /etc/hosts"
@@ -230,12 +231,6 @@ Now, lets re-use the generated certificates to create a secret in the Data Plane
 
 ```bash
 oc create secret tls kong-cluster-cert --cert=cluster.crt --key=cluster.key -n kong-dp
-```
-
-In order for the Data Plane to be part of the Mesh we have to annotate the Namespace and add the service account to the `anyuid` scc.
-```bash
-oc adm policy add-scc-to-group anyuid system:serviceaccounts:kong-dp
-oc annotate namespace kong-dp kuma.io/sidecar-injection=enabled
 ```
 
 Deploy the Data Plane from the Helm Chart
@@ -293,7 +288,7 @@ oc expose svc/kong-kong-proxy -n kong-dp --port=kong-proxy --hostname=kong-proxy
 oc create route passthrough kong-kong-proxy-tls --port=kong-proxy-tls --hostname=kong-proxy-tls.microshift.io --service=kong-kong-proxy -n kong-dp
 ```
 
-Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
+Explain to our local node how to resolve requests to our routes:
 ```bash
 export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
 sudo sh -c  "echo $IP kong-proxy.microshift.io kong-proxy-tls.microshift.io >> /etc/hosts"
@@ -336,7 +331,7 @@ x-kong-admin-latency: 5
 }
 ```
 
-**NOTE** Notice that this part fails above 👆 (we should see the kong-dp-kong) this is an exploratory spike so lets just take note that it does not work as expected and move on.   
+**NOTE** Notice that this part fails above 👆 (we should see the kong-dp-kong) this is an exploratory spike so lets just take note that it does not work as expected and move on. If you see a problem or have a solution- i'm all ears.   
 
 
 Check the Data Plane Proxy to ensure that it is working:
@@ -362,7 +357,7 @@ x-kong-response-latency: 0
 
 ## Deploy Demo App
 ```bash
-cat <<EOF | kubectl apply -f -
+oc apply -f -<<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -402,17 +397,17 @@ spec:
 EOF
 ```
 
-Wait for the app to be ready
+Wait for the sample app to be ready
 ```bash
 oc wait --for=condition=ready pod -l app=sample -n default --timeout=240s
 ```
 
-Expose the frontend service as an OpenShift route:
+Expose the sample service as an OpenShift route:
 ```bash
 oc expose svc/sample -n default --port=http --hostname=sample.microshift.io
 ```
 
-Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
+Explain to our local node how to resolve requests to our routes:
 ```bash
 export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
 sudo sh -c  "echo $IP sample.microshift.io >> /etc/hosts"
@@ -543,7 +538,7 @@ x-kong-admin-request-id: oRgYHkfqzLPgC1tG4K0A7UACG9ssIswT
 }
 ```
 
-Validate the sample app by calling through the proxy
+Validate the sample app by calling through Data Plane Proxy
 ```
 http $(oc get route -n kong-dp kong-kong-proxy -ojsonpath='{.spec.host}')/sample/hello
 ```
@@ -565,6 +560,8 @@ Hello World, Kong: 2022-06-01 19:37:29.644071
 ```
 
 ## Ingress Creation
+Now, lets use the ingress.   
+   
 Create a service of type `ExternalName`
 ```bash
 oc apply -f -<<EOF
