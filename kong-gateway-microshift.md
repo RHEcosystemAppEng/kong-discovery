@@ -71,7 +71,7 @@ docker/podman unpause microshift
 ```
 
 
-Wait until all pods are in a running state, _it could take ~3 minutes for the pods to come up_
+Wait until all pods are in a running state, _it could take ~3 minutes for the pods to come up_   
 ```bash
 oc wait --for=condition=ready pod -l dns.operator.openshift.io/daemonset-dns=default -n openshift-dns --timeout=240s
 
@@ -331,7 +331,7 @@ x-kong-admin-latency: 5
 }
 ```
 
-**NOTE** Notice that this part fails above 👆 (we should see the kong-dp-kong) this is an exploratory spike so lets just take note that it does not work as expected and move on. If you see a problem or have a solution- i'm all ears.   
+**NOTE** Notice that this part fails above 👆 (we should see the kong-dp-kong) this is an exploratory spike so lets just take note that it does not work as expected and move on. If you see a problem or have a solution- i'm all ears. This is the only thing that I cannot get to work, but the rest of the document works just fine.
 
 
 Check the Data Plane Proxy to ensure that it is working:
