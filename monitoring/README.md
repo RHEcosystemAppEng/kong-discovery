@@ -123,7 +123,7 @@ oc apply -f olm-subscriptions.yaml
 
 We have to enable the status API so let's update the Helm deployment.
 
-**Note**: I have noticed a problem when loading the manager page with the status api enabled. The page takes a lot of time to load and is
+**Monitor across deployments**: Issue when loading the manager page with the status api enabled. The page takes a lot of time to load and is
 not responsive
 
 ```bash
@@ -184,7 +184,7 @@ GF_SECURITY_ADMIN_USER: admin
 
 #### Validate the metrics
 
-I have used the rate-limit plugin from ../kic/simple-rate-limiting.yaml and made a lot of requests until the rate limit is exeeded. Then in the Dashboard you can correlate the 
+The rate-limit plugin from ../kic/simple-rate-limiting.yaml was used and made a lot of requests until the rate limit is exeeded. Then in the Dashboard you can correlate the 
 requests per second and confirm the 429 status codes start appearing when the limit of 10 requests per minute is reached.
 
 ## Clean up
