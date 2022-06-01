@@ -1,5 +1,5 @@
 # Install Gateway CP/DP on MicroShift
-With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In this document we will deploy the Kong Gateway with the Control Plane and Data Plane in two distict namespaces on MicroShift to validate that it performs and works as expected. This document has been tested on `Fedora 35`. This document corresponds to the [Kong Gateway](https://github.com/RHEcosystemAppEng/kong-discovery/blob/main/gateway/README.md) doc.
+With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In this document we will deploy the Kong Gateway with the Control Plane and Data Plane in two distict namespaces on MicroShift to validate that it performs and works as expected. This document has been tested on `Fedora 35`. This document corresponds to the [Kong Gateway](https://docs.google.com/document/d/122_muJ2sRPR1Qd1ajh5Oh6ogkOnevzVWhWi_gw3xh9c/edit#) doc.
 
 **TOC**  
 - [Prerequisites](#prerequisites)
