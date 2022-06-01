@@ -109,7 +109,12 @@ ingressController:
   enabled: true
   installCRDs: false
   image:
+    repository: kong/kubernetes-ingress-controller
     tag: 2.3.1
+image:
+  repository: kong/kong-gateway
+  tag: 2.8.0.0-alpine
+  unifiedRepoTag: kong/kong-gateway:2.8.0.0-alpine
 env:
   database: postgres
   role: control_plane
@@ -198,7 +203,7 @@ http $(oc get route kong-kong-admin -ojsonpath='{.spec.host}' -n kong) | jq -r .
 
 output
 ```text
-2.8.1
+2.8.0.0-enterprise-edition
 ```
 
 ## Deploy Kong Gateway Data Plane
@@ -226,6 +231,10 @@ Deploy the Data Plane from the Helm Chart
 cat <<EOF> values.yaml
 ingressController:
   enabled: false
+image:
+  repository: kong/kong-gateway
+  tag: 2.8.0.0-alpine
+  unifiedRepoTag: kong/kong-gateway:2.8.0.0-alpine
 env:
   database: "off"
   role: data_plane
@@ -337,6 +346,176 @@ x-kong-response-latency: 0
 ```
 
 ## Deploy Demo App
+Apply scc of anyuid to `kuma-demo` service account
+```bash
+oc adm policy add-scc-to-group anyuid system:serviceaccounts:kuma-demo
+```
+
+Deploy the kuma-demo
+```bash
+oc apply -f https://raw.githubusercontent.com/kumahq/kuma-demo/master/kubernetes/kuma-demo-aio.yaml
+```
+
+Expose the frontend service as an OpenShift route:
+```bash
+oc expose svc/frontend -n kuma-demo --port=http --hostname=frontend.microshift.io
+```
+
+Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
+```bash
+export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
+sudo sh -c  "echo $IP frontend.microshift.io >> /etc/hosts"
+```
+
+Validate `/etc/hosts` has been properly updated, expect to see frontend
+```bash
+tail -1 /etc/hosts
+```
+
+Validate the deployment
+```bash
+http -h `oc get route frontend -n kuma-demo -ojson | jq -r .spec.host` 
+```
+output
+```text
+HTTP/1.1 200 OK
+cache-control: max-age=3600
+cache-control: private
+content-length: 862
+content-type: text/html; charset=UTF-8
+date: Wed, 01 Jun 2022 16:12:57 GMT
+etag: W/"1302418-862-2020-08-16T00:52:19.000Z"
+last-modified: Sun, 16 Aug 2020 00:52:19 GMT
+server: ecstatic-3.3.2
+set-cookie: 7132be541f54d5eca6de5be20e9063c8=74c72191731b328dca33288eb174f2e0; path=/; HttpOnly
+```
+
+Use the Rest API to create the service
+```bash
+http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services name=kuma-demo url='http://frontend.kuma-demo.svc.cluster.local:8080'
+```
+output
+```shell
+HTTP/1.1 201 Created
+access-control-allow-origin: *
+content-length: 397
+content-type: application/json; charset=utf-8
+date: Wed, 01 Jun 2022 16:14:37 GMT
+server: kong/2.8.0.0-enterprise-edition
+set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=c5bf8ec87cb843d4efdde08f90ae0c2f; path=/; HttpOnly
+x-kong-admin-latency: 8
+x-kong-admin-request-id: uj8TeNEbK8VNDlWdMPjXo158wG5JtrkN
+
+{
+    "ca_certificates": null,
+    "client_certificate": null,
+    "connect_timeout": 60000,
+    "created_at": 1654100077,
+    "enabled": true,
+    "host": "frontend.kuma-demo.svc.cluster.local",
+    "id": "953ac2ce-05b6-4d89-8c54-5c7cf1795851",
+    "name": "kuma-demo",
+    "path": null,
+    "port": 8080,
+    "protocol": "http",
+    "read_timeout": 60000,
+    "retries": 5,
+    "tags": null,
+    "tls_verify": null,
+    "tls_verify_depth": null,
+    "updated_at": 1654100077,
+    "write_timeout": 60000
+}
+```
+Create a Gateway Route to forward requests to the OpenShift route (e.g. demo-app.kong-dp.apps-myocp.example.com) to the demo-app service in the kuma-demo namespace.
+```bash
+echo "http -v `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services/kuma-demo/routes name=demoroute hosts:='[\"`oc get route -n kuma-demo frontend --template='{{ .spec.host }}'`\"]' --ignore-stdin" | sh -
+```
+
+output
+```
+POST /services/kuma-demo/routes HTTP/1.1
+Accept: application/json, */*;q=0.5
+Accept-Encoding: gzip, deflate
+Connection: keep-alive
+Content-Length: 58
+Content-Type: application/json
+Host: kong-admin.microshift.io
+User-Agent: HTTPie/3.1.0
+
+{
+    "hosts": [
+        "frontend.microshift.io"
+    ],
+    "name": "demoroute"
+}
+
+
+HTTP/1.1 201 Created
+access-control-allow-origin: *
+content-length: 498
+content-type: application/json; charset=utf-8
+date: Wed, 01 Jun 2022 16:17:52 GMT
+server: kong/2.8.0.0-enterprise-edition
+set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=c5bf8ec87cb843d4efdde08f90ae0c2f; path=/; HttpOnly
+x-kong-admin-latency: 108
+x-kong-admin-request-id: lHoilIdur8I0UyUrmxU118v3dkN675ve
+
+{
+    "created_at": 1654100272,
+    "destinations": null,
+    "headers": null,
+    "hosts": [
+        "frontend.microshift.io"
+    ],
+    "https_redirect_status_code": 426,
+    "id": "012e19e4-24af-4996-9ee7-290205a886f5",
+    "methods": null,
+    "name": "demoroute",
+    "path_handling": "v0",
+    "paths": null,
+    "preserve_host": false,
+    "protocols": [
+        "http",
+        "https"
+    ],
+    "regex_priority": 0,
+    "request_buffering": true,
+    "response_buffering": true,
+    "service": {
+        "id": "953ac2ce-05b6-4d89-8c54-5c7cf1795851"
+    },
+    "snis": null,
+    "sources": null,
+    "strip_path": true,
+    "tags": null,
+    "updated_at": 1654100272
+}
+```
+
+Create an Ingress is not possible in this environment:
+```
+error: the server doesn't have a resource type "ingresses"
+```
+
+Validate the demo app
+```
+http `oc get route -n kuma-demo frontend --template='{{.spec.host}}'`
+```
+
+output
+```text
+HTTP/1.1 200 OK
+cache-control: max-age=3600
+cache-control: private
+content-length: 862
+content-type: text/html; charset=UTF-8
+date: Wed, 01 Jun 2022 16:21:34 GMT
+etag: W/"1302418-862-2020-08-16T00:52:19.000Z"
+last-modified: Sun, 16 Aug 2020 00:52:19 GMT
+server: ecstatic-3.3.2
+set-cookie: 7132be541f54d5eca6de5be20e9063c8=74c72191731b328dca33288eb174f2e0; path=/; HttpOnly
+```
 
 
 ## Clean Up
