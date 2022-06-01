@@ -6,8 +6,8 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 - [Install MicroShift](#install-microshift)
 - [Deploy Kong Gateway Control Plane](#deploy-kong-gateway-control-plane)
 - [Deploy Kong Gateway Data Plane](#deploy-kong-gateway-data-plane)
-- [Deploy Demo App](#deploy-demo-app)
-- [Configure App from Control Plane](#configure-app-from-control-plane)
+- [Deploy Sample App](#deploy-sample-app)
+- [Configure Sample App from Control Plane](#configure-sample-app-from-control-plane)
 - [Ingress Creation](#ingress-creation)
 - [Clean Up](#clean-up)
 - [Resources](#resources)
@@ -331,7 +331,7 @@ x-kong-admin-latency: 5
 }
 ```
 
-**NOTE** Notice that this part fails above 👆 (we should see the kong-dp-kong) this is an exploratory spike so lets just take note that it does not work as expected and move on. If you see a problem or have a solution- i'm all ears. This is the only thing that I cannot get to work, but the rest of the document works just fine.
+**NOTE** Notice that this part fails above 👆 (we should see the kong-dp-kong). This is an exploratory spike so lets just take note that it does not work as expected and move on. If you see a problem or have a solution- i'm all ears. This is the only thing that I cannot get to work, but the rest of the document works just fine. **This _could_ be a false positive.**
 
 
 Check the Data Plane Proxy to ensure that it is working:
@@ -355,7 +355,7 @@ x-kong-response-latency: 0
 }
 ```
 
-## Deploy Demo App
+## Deploy Sample App
 ```bash
 oc apply -f -<<EOF
 apiVersion: v1
@@ -434,7 +434,7 @@ server: Werkzeug/1.0.1 Python/3.7.4
 set-cookie: 9f28662b21dec84df02ebb0dbf99421a=d21d14562fc74578d6ec0c72e4900052; path=/; HttpOnly
 ```
 
-## Configure App From Control Plane
+## Configure Sample App From Control Plane
 Define a service from the Control Plane for the sample app
 ```bash
 http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services name=sampleservice url='http://sample.default.svc.cluster.local:5000'
