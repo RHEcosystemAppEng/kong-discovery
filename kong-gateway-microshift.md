@@ -4,7 +4,6 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 **TOC**  
 - [Prerequisites](#prerequisites)
 - [Install MicroShift](#install-microshift)
-- [Deploy Sample App](#deploy-sample-app)
 - [Deploy Kong Gateway Control Plane](#deploy-kong-gateway-control-plane)
 - [Deploy Kong Gateway Data Plane](#deploy-kong-gateway-data-plane)
 - [Deploy Demo App](#deploy-demo-app)
@@ -84,63 +83,6 @@ openshift-dns                   dns-default-rpbxm                     2/2     Ru
 openshift-dns                   node-resolver-24sts                   1/1     Running   0          2m33s
 openshift-ingress               router-default-6c96f6bc66-gs8gd       1/1     Running   0          2m34s
 openshift-service-ca            service-ca-7bffb6f6bf-482ff           1/1     Running   0          2m37s
-```
-
-## Deploy Sample App
-We start by deploying a sample app that we will use with Kong Gateway.
-```
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Service
-metadata:
-  name: sample
-  namespace: default
-  labels:
-    app: sample
-spec:
-  type: ClusterIP
-  ports:
-  - port: 5000
-    name: http
-  selector:
-    app: sample
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: sample
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: sample
-  template:
-    metadata:
-      labels:
-        app: sample
-        version: v1
-    spec:
-      containers:
-      - name: sample
-        image: claudioacquaviva/sampleapp
-        ports:
-        - containerPort: 5000
-EOF
-```
-output
-```
-service/sample created
-deployment.apps/sample created
-```
-
-wait for app to be ready
-```
-kubectl wait --for=condition=ready pod -l app=sample --timeout=120s
-```
-output
-```
-pod/sample-76db6bb547-klztz condition met
 ```
 
 ## Deploy Kong Gateway Control Plane
