@@ -1,5 +1,5 @@
 # Install Gateway CP/DP on MicroShift
-With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In this document we will deploy the Kong Gateway with the Control Plane and Data Plane in two distict namespaces on MicroShift to validate that it performs and works as expected. This document has been tested on `Fedora 35`.
+With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In this document we will deploy the Kong Gateway with the Control Plane and Data Plane in two distict namespaces on MicroShift to validate that it performs and works as expected. This document has been tested on `Fedora 35`. This document corresponds to the [Kong Gateway](https://github.com/RHEcosystemAppEng/kong-discovery/blob/main/gateway/README.md) doc.
 
 **TOC**  
 - [Prerequisites](#prerequisites)
@@ -7,6 +7,7 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 - [Deploy Sample App](#deploy-sample-app)
 - [Deploy Kong Gateway Control Plane](#deploy-kong-gateway-control-plane)
 - [Deploy Kong Gateway Data Plane](#deploy-kong-gateway-data-plane)
+- [Deploy Demo App](#deploy-demo-app)
 - [Clean Up](#clean-up)
 - [Resources](#resources)
 
@@ -57,6 +58,7 @@ The [installation process](https://microshift.io/docs/getting-started/#using-mic
 Set the active `kubeconfig` to the local kubeconfig
 ```
 export KUBECONFIG=./kubeconfig
+sudo chmod 777 kubeconfig
 ```
 
 
@@ -64,6 +66,24 @@ export KUBECONFIG=./kubeconfig
 ```
 docker/podman pause microshift
 docker/podman unpause microshift
+```
+
+
+Wait until all pods are in a running state, _it could take ~3 minutes for the pods to come up_
+```bash
+oc wait --for=condition=ready pod -l dns.operator.openshift.io/daemonset-dns=default -n openshift-dns --timeout=240s
+
+oc get po -A
+```
+output
+```text
+NAMESPACE                       NAME                                  READY   STATUS    RESTARTS   AGE
+kube-system                     kube-flannel-ds-tc7h8                 1/1     Running   0          2m33s
+kubevirt-hostpath-provisioner   kubevirt-hostpath-provisioner-gzgl7   1/1     Running   0          116s
+openshift-dns                   dns-default-rpbxm                     2/2     Running   0          2m33s
+openshift-dns                   node-resolver-24sts                   1/1     Running   0          2m33s
+openshift-ingress               router-default-6c96f6bc66-gs8gd       1/1     Running   0          2m34s
+openshift-service-ca            service-ca-7bffb6f6bf-482ff           1/1     Running   0          2m37s
 ```
 
 ## Deploy Sample App
@@ -148,8 +168,6 @@ ingressController:
   installCRDs: false
   image:
     tag: 2.3.1
-image:
-  tag: 2.8.0.0-alpine
 env:
   database: postgres
   role: control_plane
@@ -201,7 +219,7 @@ helm install kong -n kong kong/kong -f values.yaml
 
 Wait for the control plane pod to be ready
 ```
-oc wait --for=condition=ready --timeout=90s pod -l app=ingress-kong -n kong
+oc wait --for=condition=ready pod -l app.kubernetes.io/component=app -n kong --timeout=180s
 ```
 
 
@@ -209,29 +227,36 @@ Expose the Control Plane Services for `admin` and `manager`
 ```bash
 oc expose svc/kong-kong-admin --port=kong-admin --hostname=kong-admin.microshift.io -n kong 
 
+oc create route passthrough kong-kong-admin-tls --port=kong-admin-tls --hostname=kong-admin-tls.microshift.io --service=kong-kong-admin -n kong 
 
 oc expose svc/kong-kong-manager --port=kong-manager --hostname=kong-manager.microshift.io -n kong
+
+oc create route passthrough kong-kong-manager-tls --port=kong-manager-tls --hostname=kong-manager-tls.microshift.io --service=kong-kong-manager -n kong 
 ```
 
 Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
 ```bash
 export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
-sudo sh -c  'echo $IP kong-manager.microshift.io kong-admin.microshift.io >> /etc/hosts"
+sudo sh -c  "echo $IP kong-manager.microshift.io kong-manager-tls.microshift.io kong-admin.microshift.io kong-admin-tls.microshift.io >> /etc/hosts"
 ```
 
-Validate `/etc/hosts` has been properly updated, expect to see kong-manager and kong-admin
+Validate `/etc/hosts` has been properly updated, expect to see kong-manager, kong-manager-tls, kong-admin and kong-admin-tls
 ```bash
 tail -1 /etc/hosts
+```
+output
+```text
+10.88.0.4 kong-manager.microshift.io kong-manager-tls.microshift.io kong-admin.microshift.io kong-admin-tls.microshift.io
 ```
 
 Validate the installed version
 ```bash
-http $(oc get route kong-kong-admin -ojsonpath='{.spec.host}')
+http $(oc get route kong-kong-admin -ojsonpath='{.spec.host}' -n kong) | jq -r .version
 ```
 
 output
 ```text
-
+2.8.1
 ```
 
 ## Deploy Kong Gateway Data Plane
@@ -239,18 +264,19 @@ Similarly to the Control Plane, let's create the namespace with the secret conta
 
 ```bash
 oc new-project kong-dp
-kubectl create secret generic kong-enterprise-license -n kong-dp --from-file=license=../license.json
+oc create secret generic kong-enterprise-license -n kong-dp --from-file=license=license.json
 ```
 
 Now, lets re-use the generated certificates to create a secret in the Data Plane namespace
 
 ```bash
-kubectl create secret tls kong-cluster-cert --cert=./gateway/cluster.crt --key=./gateway/cluster.key -n kong-dp
+kubectl create secret tls kong-cluster-cert --cert=cluster.crt --key=cluster.key -n kong-dp
 ```
 
-Assign the `kong-dp` ServiceAccount a ClusterRoleBinding:
+In order for the Data Plane to be part of the Mesh we have to annotate the Namespace and add the service account to the `anyuid` scc.
 ```bash
 oc adm policy add-scc-to-group anyuid system:serviceaccounts:kong-dp
+oc annotate namespace kong-dp kuma.io/sidecar-injection=enabled
 ```
 
 Deploy the Data Plane from the Helm Chart
@@ -258,8 +284,6 @@ Deploy the Data Plane from the Helm Chart
 cat <<EOF> values.yaml
 ingressController:
   enabled: false
-image:
-  tag: 2.8.0.0-alpine
 env:
   database: "off"
   role: data_plane
@@ -295,26 +319,91 @@ EOF
 helm install kong -n kong-dp kong/kong -f values.yaml
 ```
 
+Wait for the data plane pod to be ready
+```bash
+oc wait --for=condition=ready pod -l app.kubernetes.io/component=app -n kong-dp --timeout=180s
+```
 Expose the Proxy Service
 ```bash
-oc expose svc/kong-dp -n kong-dp --port=kong-proxy --hostname=kong-proxy.microshift.io
+oc expose svc/kong-kong-proxy -n kong-dp --port=kong-proxy --hostname=kong-proxy.microshift.io
 
-oc expose svc/kong-kong-proxy -n kong-dp --port=kong-proxy-tls --hostname=kong-proxy-tls.microshift.io -n kong-dp
+oc create route passthrough kong-kong-proxy-tls --port=kong-proxy-tls --hostname=kong-proxy-tls.microshift.io --service=kong-kong-proxy -n kong-dp
 ```
 
 Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
 ```bash
 export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
-sudo sh -c  'echo $IP kong-proxy.microshift.io kong-proxy-tls.microshift.io >> /etc/hosts"
+sudo sh -c  "echo $IP kong-proxy.microshift.io kong-proxy-tls.microshift.io >> /etc/hosts"
 ```
+
+Validate `/etc/hosts` has been properly updated, expect to see kong-manager, kong-manager-tls, kong-admin and kong-admin-tls
+```bash
+tail -1 /etc/hosts
+```
+output
+```text
+10.88.0.4 kong-proxy.microshift.io kong-proxy-tls.microshift.io
+```
+
+Check the Data Plane from the Control Plane to make sure the Data Plane is part of the cluster:
+```bash
+http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/clustering/status
+```
+
+output
+```text
+HTTP/1.1 200 OK
+access-control-allow-origin: *
+cache-control: private
+content-length: 170
+content-type: application/json; charset=utf-8
+date: Wed, 01 Jun 2022 13:57:06 GMT
+deprecation: true
+server: kong/2.8.1
+set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=5bd1a33699c17cb7a92c693484aa8ad8; path=/; HttpOnly
+x-kong-admin-latency: 5
+
+{
+    "b53487b3-752b-4ac5-8a64-f75e3592ca7c": {
+        "config_hash": "569818cb13aa3a90b1d72ca8225cd0cf",
+        "hostname": "kong-kong-77594db78-tkmz8",
+        "ip": "10.42.0.1",
+        "last_seen": 1654091809
+    }
+}
+```
+
+Check the Data Plane Proxy to ensure that it is working:
+```bash
+http `oc get route -n kong-dp kong-kong-proxy --template='{{ .spec.host }}'`/
+```
+
+output
+```
+HTTP/1.1 404 Not Found
+cache-control: private
+content-length: 48
+content-type: application/json; charset=utf-8
+date: Wed, 01 Jun 2022 13:59:14 GMT
+server: kong/2.8.1
+set-cookie: 7439e381b0d6fc4efb69077feca119cd=479354089fd040bb701b8f071fefdb6c; path=/; HttpOnly
+x-kong-response-latency: 0
+
+{
+    "message": "no Route matched with those values"
+}
+```
+
+## Deploy Demo App
+
 
 ## Clean Up
 <details>
   <summary>Linux</summary>
-  Remove Helm values file:
+  Remove files created during demo
 
   ```bash
-  rm values.yaml
+  rm values.yaml kubeconfig cluster.key cluster.crt
   ```
   Restore /etc/hosts:
 
@@ -329,14 +418,15 @@ sudo sh -c  'echo $IP kong-proxy.microshift.io kong-proxy-tls.microshift.io >> /
   sudo podman rmi -f quay.io/microshift/microshift-aio
   sudo podman volume rm microshift-data
   ```
+  
 </details>
 
 <details>
   <summary>Mac</summary>
-  Remove Helm values file:
+  Remove files created during demo
 
   ```bash
-  rm values.yaml
+  rm values.yaml kubeconfig cluster.key cluster.crt
   ```
   Restore /etc/hosts:
 
@@ -355,4 +445,4 @@ sudo sh -c  'echo $IP kong-proxy.microshift.io kong-proxy-tls.microshift.io >> /
 </details>
 
 ## Resources
-- [Kong Gateway Installation](https://docs.konghq.com/gateway/latest/install-and-run/kubernetes/)
+- [Kong Gateway Doc](https://github.com/RHEcosystemAppEng/kong-discovery/blob/main/gateway/README.md)
