@@ -7,6 +7,8 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 - [Deploy Kong Gateway Control Plane](#deploy-kong-gateway-control-plane)
 - [Deploy Kong Gateway Data Plane](#deploy-kong-gateway-data-plane)
 - [Deploy Demo App](#deploy-demo-app)
+- [Configure App from Control Plane](#configure-app-from-control-plane)
+- [Ingress Creation](#ingress-creation)
 - [Clean Up](#clean-up)
 - [Resources](#resources)
 
@@ -206,6 +208,16 @@ output
 2.8.0.0-enterprise-edition
 ```
 
+Configure Kong Manager Service
+```bash
+oc patch deploy -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"$(oc get route -n kong kong-kong-admin -ojsonpath='{.spec.host}')\" }]}]}}}}"
+```
+
+Log into Kong Manager in the browser
+```
+oc get routes -n kong kong-kong-manager -ojsonpath='{.spec.host}'
+```
+
 ## Deploy Kong Gateway Data Plane
 Similarly to the Control Plane, let's create the namespace with the secret containing the license
 
@@ -217,7 +229,7 @@ oc create secret generic kong-enterprise-license -n kong-dp --from-file=license=
 Now, lets re-use the generated certificates to create a secret in the Data Plane namespace
 
 ```bash
-kubectl create secret tls kong-cluster-cert --cert=cluster.crt --key=cluster.key -n kong-dp
+oc create secret tls kong-cluster-cert --cert=cluster.crt --key=cluster.key -n kong-dp
 ```
 
 In order for the Data Plane to be part of the Mesh we have to annotate the Namespace and add the service account to the `anyuid` scc.
@@ -287,7 +299,7 @@ export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="Interna
 sudo sh -c  "echo $IP kong-proxy.microshift.io kong-proxy-tls.microshift.io >> /etc/hosts"
 ```
 
-Validate `/etc/hosts` has been properly updated, expect to see kong-manager, kong-manager-tls, kong-admin and kong-admin-tls
+Validate `/etc/hosts` has been properly updated, expect to see kong-proxy, kong-proxy-tls
 ```bash
 tail -1 /etc/hosts
 ```
@@ -324,6 +336,9 @@ x-kong-admin-latency: 5
 }
 ```
 
+**NOTE** Notice that this part fails above 👆 (we should see the kong-dp-kong) this is an exploratory spike so lets just take note that it does not work as expected and move on.   
+
+
 Check the Data Plane Proxy to ensure that it is working:
 ```bash
 http `oc get route -n kong-dp kong-kong-proxy --template='{{ .spec.host }}'`/
@@ -346,134 +361,169 @@ x-kong-response-latency: 0
 ```
 
 ## Deploy Demo App
-Apply scc of anyuid to `kuma-demo` service account
 ```bash
-oc adm policy add-scc-to-group anyuid system:serviceaccounts:kuma-demo
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample
+  namespace: default
+  labels:
+    app: sample
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5000
+    name: http
+  selector:
+    app: sample
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample
+  template:
+    metadata:
+      labels:
+        app: sample
+        version: v1
+    spec:
+      containers:
+      - name: sample
+        image: claudioacquaviva/sampleapp
+        ports:
+        - containerPort: 5000
+EOF
 ```
 
-Deploy the kuma-demo
+Wait for the app to be ready
 ```bash
-oc apply -f https://raw.githubusercontent.com/kumahq/kuma-demo/master/kubernetes/kuma-demo-aio.yaml
+oc wait --for=condition=ready pod -l app=sample -n default --timeout=240s
 ```
 
 Expose the frontend service as an OpenShift route:
 ```bash
-oc expose svc/frontend -n kuma-demo --port=http --hostname=frontend.microshift.io
+oc expose svc/sample -n default --port=http --hostname=sample.microshift.io
 ```
 
 Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
 ```bash
 export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
-sudo sh -c  "echo $IP frontend.microshift.io >> /etc/hosts"
+sudo sh -c  "echo $IP sample.microshift.io >> /etc/hosts"
 ```
 
-Validate `/etc/hosts` has been properly updated, expect to see frontend
+Validate `/etc/hosts` has been properly updated, expect to see sample
 ```bash
 tail -1 /etc/hosts
 ```
 
-Validate the deployment
+Validate the sample app deployment
 ```bash
-http -h `oc get route frontend -n kuma-demo -ojson | jq -r .spec.host` 
+http -h `oc get route sample -n default -ojson | jq -r .spec.host` 
 ```
 output
 ```text
-HTTP/1.1 200 OK
-cache-control: max-age=3600
+HTTP/1.0 200 OK
 cache-control: private
-content-length: 862
-content-type: text/html; charset=UTF-8
-date: Wed, 01 Jun 2022 16:12:57 GMT
-etag: W/"1302418-862-2020-08-16T00:52:19.000Z"
-last-modified: Sun, 16 Aug 2020 00:52:19 GMT
-server: ecstatic-3.3.2
-set-cookie: 7132be541f54d5eca6de5be20e9063c8=74c72191731b328dca33288eb174f2e0; path=/; HttpOnly
+connection: keep-alive
+content-length: 17
+content-type: text/html; charset=utf-8
+date: Wed, 01 Jun 2022 19:15:34 GMT
+server: Werkzeug/1.0.1 Python/3.7.4
+set-cookie: 9f28662b21dec84df02ebb0dbf99421a=d21d14562fc74578d6ec0c72e4900052; path=/; HttpOnly
 ```
 
-Use the Rest API to create the service
+## Configure App From Control Plane
+Define a service from the Control Plane for the sample app
 ```bash
-http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services name=kuma-demo url='http://frontend.kuma-demo.svc.cluster.local:8080'
+http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services name=sampleservice url='http://sample.default.svc.cluster.local:5000'
 ```
 output
-```shell
+```
 HTTP/1.1 201 Created
 access-control-allow-origin: *
 content-length: 397
 content-type: application/json; charset=utf-8
-date: Wed, 01 Jun 2022 16:14:37 GMT
+date: Wed, 01 Jun 2022 19:02:48 GMT
 server: kong/2.8.0.0-enterprise-edition
-set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=c5bf8ec87cb843d4efdde08f90ae0c2f; path=/; HttpOnly
-x-kong-admin-latency: 8
-x-kong-admin-request-id: uj8TeNEbK8VNDlWdMPjXo158wG5JtrkN
+set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=3f200a7eb4664f634001ded36de03298; path=/; HttpOnly
+x-kong-admin-latency: 10
+x-kong-admin-request-id: pUInKj5QlBQS4nIzKDCmlE0LhbXv6IvT
 
 {
     "ca_certificates": null,
     "client_certificate": null,
     "connect_timeout": 60000,
-    "created_at": 1654100077,
+    "created_at": 1654110168,
     "enabled": true,
-    "host": "frontend.kuma-demo.svc.cluster.local",
-    "id": "953ac2ce-05b6-4d89-8c54-5c7cf1795851",
-    "name": "kuma-demo",
+    "host": "sample.default.svc.cluster.local",
+    "id": "51285acf-946a-4b50-98f1-46b954cb7e2f",
+    "name": "sampleservice",
     "path": null,
-    "port": 8080,
+    "port": 5000,
     "protocol": "http",
     "read_timeout": 60000,
     "retries": 5,
     "tags": null,
     "tls_verify": null,
     "tls_verify_depth": null,
-    "updated_at": 1654100077,
+    "updated_at": 1654110168,
     "write_timeout": 60000
 }
 ```
-Create a Gateway Route to forward requests to the OpenShift route (e.g. demo-app.kong-dp.apps-myocp.example.com) to the demo-app service in the kuma-demo namespace.
-```bash
-echo "http -v `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services/kuma-demo/routes name=demoroute hosts:='[\"`oc get route -n kuma-demo frontend --template='{{ .spec.host }}'`\"]' --ignore-stdin" | sh -
-```
 
-output
+Now define a route for the sample app from the Control Plane
+```bash
+http -v $(oc get route -n kong kong-kong-admin --template='{{ .spec.host }}')/services/sampleservice/routes name='httpbinroute' paths:='["/sample"]'
 ```
-POST /services/kuma-demo/routes HTTP/1.1
+output
+```shell
+POST /services/sampleservice/routes HTTP/1.1
 Accept: application/json, */*;q=0.5
 Accept-Encoding: gzip, deflate
 Connection: keep-alive
-Content-Length: 58
+Content-Length: 46
 Content-Type: application/json
 Host: kong-admin.microshift.io
 User-Agent: HTTPie/3.1.0
 
 {
-    "hosts": [
-        "frontend.microshift.io"
-    ],
-    "name": "demoroute"
+    "name": "httpbinroute",
+    "paths": [
+        "/sample"
+    ]
 }
 
 
 HTTP/1.1 201 Created
 access-control-allow-origin: *
-content-length: 498
+content-length: 486
 content-type: application/json; charset=utf-8
-date: Wed, 01 Jun 2022 16:17:52 GMT
+date: Wed, 01 Jun 2022 19:08:35 GMT
 server: kong/2.8.0.0-enterprise-edition
-set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=c5bf8ec87cb843d4efdde08f90ae0c2f; path=/; HttpOnly
-x-kong-admin-latency: 108
-x-kong-admin-request-id: lHoilIdur8I0UyUrmxU118v3dkN675ve
+set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=3f200a7eb4664f634001ded36de03298; path=/; HttpOnly
+x-kong-admin-latency: 19
+x-kong-admin-request-id: oRgYHkfqzLPgC1tG4K0A7UACG9ssIswT
 
 {
-    "created_at": 1654100272,
+    "created_at": 1654110515,
     "destinations": null,
     "headers": null,
-    "hosts": [
-        "frontend.microshift.io"
-    ],
+    "hosts": null,
     "https_redirect_status_code": 426,
-    "id": "012e19e4-24af-4996-9ee7-290205a886f5",
+    "id": "728bb528-996c-41d9-99ce-fea51a593041",
     "methods": null,
-    "name": "demoroute",
+    "name": "httpbinroute",
     "path_handling": "v0",
-    "paths": null,
+    "paths": [
+        "/sample"
+    ],
     "preserve_host": false,
     "protocols": [
         "http",
@@ -483,38 +533,113 @@ x-kong-admin-request-id: lHoilIdur8I0UyUrmxU118v3dkN675ve
     "request_buffering": true,
     "response_buffering": true,
     "service": {
-        "id": "953ac2ce-05b6-4d89-8c54-5c7cf1795851"
+        "id": "51285acf-946a-4b50-98f1-46b954cb7e2f"
     },
     "snis": null,
     "sources": null,
     "strip_path": true,
     "tags": null,
-    "updated_at": 1654100272
+    "updated_at": 1654110515
 }
 ```
 
-Create an Ingress is not possible in this environment:
+Validate the sample app by calling through the proxy
 ```
-error: the server doesn't have a resource type "ingresses"
-```
-
-Validate the demo app
-```
-http `oc get route -n kuma-demo frontend --template='{{.spec.host}}'`
+http $(oc get route -n kong-dp kong-kong-proxy -ojsonpath='{.spec.host}')/sample/hello
 ```
 
 output
-```text
+```shell
 HTTP/1.1 200 OK
-cache-control: max-age=3600
 cache-control: private
-content-length: 862
-content-type: text/html; charset=UTF-8
-date: Wed, 01 Jun 2022 16:21:34 GMT
-etag: W/"1302418-862-2020-08-16T00:52:19.000Z"
-last-modified: Sun, 16 Aug 2020 00:52:19 GMT
-server: ecstatic-3.3.2
-set-cookie: 7132be541f54d5eca6de5be20e9063c8=74c72191731b328dca33288eb174f2e0; path=/; HttpOnly
+content-length: 45
+content-type: text/html; charset=utf-8
+date: Wed, 01 Jun 2022 19:37:29 GMT
+server: Werkzeug/1.0.1 Python/3.7.4
+set-cookie: 7439e381b0d6fc4efb69077feca119cd=c7db98c21c993951f6ffbf9112653534; path=/; HttpOnly
+via: kong/2.8.0.0-enterprise-edition
+x-kong-proxy-latency: 40
+x-kong-upstream-latency: 1
+
+Hello World, Kong: 2022-06-01 19:37:29.644071
+```
+
+## Ingress Creation
+Create a service of type `ExternalName`
+```bash
+oc apply -f -<<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: route1-ext
+  namespace: default
+spec:
+  type: ExternalName
+  externalName: httpbin.org
+EOF
+```
+
+Create the Ingress resource
+```bash
+oc apply -f -<<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: route1
+  namespace: default
+  annotations:
+    konghq.com/strip-path: "true"
+    kubernetes.io/ingress.class: kong
+spec:
+  rules:
+  - http:
+      paths:
+        - path: /route1
+          pathType: Prefix
+          backend:
+            service:
+              name: route1-ext
+              port:
+                number: 80
+EOF
+```
+
+Consume the ingress to make sure everything is working
+```bash
+http $(oc get route -n kong-dp kong-kong-proxy -ojsonpath='{.spec.host}')/route1/get
+```
+
+output
+```bash
+HTTP/1.1 200 OK
+access-control-allow-credentials: true
+access-control-allow-origin: *
+cache-control: private
+content-length: 552
+content-type: application/json
+date: Wed, 01 Jun 2022 19:54:52 GMT
+server: gunicorn/19.9.0
+set-cookie: 7439e381b0d6fc4efb69077feca119cd=c7db98c21c993951f6ffbf9112653534; path=/; HttpOnly
+via: kong/2.8.0.0-enterprise-edition
+x-kong-proxy-latency: 0
+x-kong-upstream-latency: 258
+
+{
+    "args": {},
+    "headers": {
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate",
+        "Forwarded": "for=10.88.0.1;host=kong-proxy.microshift.io;proto=http",
+        "Host": "kong-proxy.microshift.io",
+        "User-Agent": "HTTPie/3.1.0",
+        "X-Amzn-Trace-Id": "Root=1-6297c40b-36eca29948f1422d1feae351",
+        "X-Forwarded-Host": "kong-proxy.microshift.io",
+        "X-Forwarded-Path": "/route1/get",
+        "X-Forwarded-Prefix": "/route1/"
+    },
+    "origin": "10.88.0.1, 10.42.0.1, 99.46.157.144",
+    "url": "http://kong-proxy.microshift.io/get"
+}
 ```
 
 
@@ -566,4 +691,4 @@ set-cookie: 7132be541f54d5eca6de5be20e9063c8=74c72191731b328dca33288eb174f2e0; p
 </details>
 
 ## Resources
-- [Kong Gateway Doc](https://github.com/RHEcosystemAppEng/kong-discovery/blob/main/gateway/README.md)
+- [Kong Gateway Doc](https://docs.google.com/document/d/122_muJ2sRPR1Qd1ajh5Oh6ogkOnevzVWhWi_gw3xh9c/edit#)
