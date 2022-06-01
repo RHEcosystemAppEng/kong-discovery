@@ -235,6 +235,7 @@ output
 <details>
   <summary>Linux</summary>
   Restore `/etc/hosts`:
+  
   ```bash
   sudo sh -c "sed -s '/^${IP}/d' /etc/hosts" > temp_hosts
   sudo mv temp_hosts /etc/hosts
