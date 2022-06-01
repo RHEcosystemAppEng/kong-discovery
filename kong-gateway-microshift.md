@@ -6,6 +6,7 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 - [Install MicroShift](#install-microshift)
 - [Deploy Sample App](#deploy-sample-app)
 - [Deploy Kong Gateway Control Plane](#deploy-kong-gateway-control-plane)
+- [Deploy Kong Gateway Data Plane](#deploy-kong-gateway-data-plane)
 - [Clean Up](#clean-up)
 - [Resources](#resources)
 
@@ -207,6 +208,8 @@ oc wait --for=condition=ready --timeout=90s pod -l app=ingress-kong -n kong
 Expose the Control Plane Services for `admin` and `manager`
 ```bash
 oc expose svc/kong-kong-admin --port=kong-admin --hostname=kong-admin.microshift.io -n kong 
+
+
 oc expose svc/kong-kong-manager --port=kong-manager --hostname=kong-manager.microshift.io -n kong
 ```
 
@@ -231,16 +234,95 @@ output
 
 ```
 
+## Deploy Kong Gateway Data Plane
+Similarly to the Control Plane, let's create the namespace with the secret containing the license
+
+```bash
+oc new-project kong-dp
+kubectl create secret generic kong-enterprise-license -n kong-dp --from-file=license=../license.json
+```
+
+Now, lets re-use the generated certificates to create a secret in the Data Plane namespace
+
+```bash
+kubectl create secret tls kong-cluster-cert --cert=./gateway/cluster.crt --key=./gateway/cluster.key -n kong-dp
+```
+
+Assign the `kong-dp` ServiceAccount a ClusterRoleBinding:
+```bash
+oc adm policy add-scc-to-group anyuid system:serviceaccounts:kong-dp
+```
+
+Deploy the Data Plane from the Helm Chart
+```yaml
+cat <<EOF> values.yaml
+ingressController:
+  enabled: false
+image:
+  tag: 2.8.0.0-alpine
+env:
+  database: "off"
+  role: data_plane
+  cluster_cert: /etc/secrets/kong-cluster-cert/tls.crt
+  cluster_cert_key: /etc/secrets/kong-cluster-cert/tls.key
+  lua_ssl_trusted_certificate: /etc/secrets/kong-cluster-cert/tls.crt
+  cluster_control_plane: kong-kong-cluster.kong.svc.cluster.local:8005
+  cluster_telemetry_endpoint: kong-kong-clustertelemetry.kong.svc.cluster.local:8006
+  status_listen: 0.0.0.0:8100
+proxy:
+  enabled: true
+  type: ClusterIP
+secretVolumes: 
+  - kong-cluster-cert
+enterprise:
+  enabled: true
+  license_secret: kong-enterprise-license
+  portal:
+    enabled: false
+  rbac:
+    enabled: false
+  smtp:
+    enabled: false
+admin:
+  enabled: false
+manager:
+  enabled: false
+portal:
+  enabled: false
+portalapi:
+  enabled: false  
+EOF
+helm install kong -n kong-dp kong/kong -f values.yaml
+```
+
+Expose the Proxy Service
+```bash
+oc expose svc/kong-dp -n kong-dp --port=kong-proxy --hostname=kong-proxy.microshift.io
+
+oc expose svc/kong-kong-proxy -n kong-dp --port=kong-proxy-tls --hostname=kong-proxy-tls.microshift.io -n kong-dp
+```
+
+Since we are running Kubernetes in a container, we need to explain to our local node how to resolve requests to our routes:
+```bash
+export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
+sudo sh -c  'echo $IP kong-proxy.microshift.io kong-proxy-tls.microshift.io >> /etc/hosts"
+```
+
 ## Clean Up
 <details>
   <summary>Linux</summary>
-  Restore `/etc/hosts`:
-  
+  Remove Helm values file:
+
+  ```bash
+  rm values.yaml
+  ```
+  Restore /etc/hosts:
+
   ```bash
   sudo sh -c "sed -s '/^${IP}/d' /etc/hosts" > temp_hosts
   sudo mv temp_hosts /etc/hosts
   ```
-  Prune Docker if you don't have anything important running:
+  Remove Containers, Images and Volumes for MicroShift:
 
   ```bash
   sudo podman rm -f microshift
@@ -251,7 +333,19 @@ output
 
 <details>
   <summary>Mac</summary>
-  Prune Docker if you don't have anything important running:
+  Remove Helm values file:
+
+  ```bash
+  rm values.yaml
+  ```
+  Restore /etc/hosts:
+
+  ```bash
+  sudo sh -c "sed -s '/^${IP}/d' /etc/hosts" > temp_hosts
+  sudo mv temp_hosts /etc/hosts
+  ```
+
+  Remove Containers, Images and Volumes for MicroShift:
 
   ```bash
   sudo docker rm -f microshift

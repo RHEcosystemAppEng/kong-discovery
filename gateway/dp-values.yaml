@@ -1,7 +1,6 @@
 ingressController:
   enabled: false
 image:
-  repository: $OCP_REGISTRY/kong-image-registry/kong-gateway
   tag: 2.8.0.0-alpine
 env:
   database: "off"
