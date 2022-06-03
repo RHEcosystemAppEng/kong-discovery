@@ -660,7 +660,7 @@ Since this is just a container, we will just delete the container, restore /etc/
   Remove files created during demo
 
   ```bash
-  rm values.yaml kubeconfig cluster.key cluster.crt
+  rm kubeconfig 
   ```
   Restore /etc/hosts:
 
@@ -683,7 +683,7 @@ Since this is just a container, we will just delete the container, restore /etc/
   Remove files created during demo
 
   ```bash
-  rm values.yaml kubeconfig cluster.key cluster.crt
+  rm kubeconfig
   ```
   Restore /etc/hosts:
 
