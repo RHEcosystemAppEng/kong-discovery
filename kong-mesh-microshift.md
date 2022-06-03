@@ -138,63 +138,51 @@ Download `kumactl`. At the time of this demo there are problems with downloading
   ```
 </details>
 
-Install control plane on kong-mesh-system namespace. (Make sure license is in a file called `license`)
+Install control plane in `kuma-system` namespace.
 
 ```bash
-kumactl install control-plane --cni-enabled --license-path=./license | oc apply -f -
-oc get pod -n kong-mesh-system
+kumactl install control-plane --cni-enabled | oc apply -f -
+oc get pod -n kuma-system
 ```
 
 Wait for the control plane pod to be ready
 ```
-oc wait --for=condition=ready pod -l app.kubernetes.io/component=app -n kong --timeout=180s
+oc wait --for=condition=ready pod -l app.kubernetes.io/instance=kuma,app.kubernetes.io/name=kuma -n kuma-system
 ```
-
 
 Expose the Control Plane Service
 ```bash
-oc expose svc/kong-kong-admin --port=kong-admin --hostname=kong-admin.microshift.io -n kong 
-
-oc create route passthrough kong-kong-admin-tls --port=kong-admin-tls --hostname=kong-admin-tls.microshift.io --service=kong-kong-admin -n kong 
-
-oc expose svc/kong-kong-manager --port=kong-manager --hostname=kong-manager.microshift.io -n kong
-
-oc create route passthrough kong-kong-manager-tls --port=kong-manager-tls --hostname=kong-manager-tls.microshift.io --service=kong-kong-manager -n kong 
+oc expose svc/kuma-control-plane --port=http-api-server --hostname=kuma-control-plane.microshift.io -n kuma-system 
 ```
 
 Explain to our local node how to resolve requests to our routes:
 ```bash
 export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
-sudo sh -c  "echo $IP kong-manager.microshift.io kong-manager-tls.microshift.io kong-admin.microshift.io kong-admin-tls.microshift.io >> /etc/hosts"
+sudo sh -c  "echo $IP kuma-control-plane.microshift.io >> /etc/hosts"
 ```
 
-Validate `/etc/hosts` has been properly updated, expect to see kong-manager, kong-manager-tls, kong-admin and kong-admin-tls
+Validate `/etc/hosts` has been properly updated, expect to see kuma-control-plane.microshift.io
 ```bash
 tail -1 /etc/hosts
 ```
 output
 ```text
-10.88.0.4 kong-manager.microshift.io kong-manager-tls.microshift.io kong-admin.microshift.io kong-admin-tls.microshift.io
+10.88.0.2 kuma-control-plane.microshift.io
 ```
 
 Validate the installed version
 ```bash
-http $(oc get route kong-kong-admin -ojsonpath='{.spec.host}' -n kong) | jq -r .version
+http $(oc get route kuma-control-plane -ojsonpath='{.spec.host}' -n kuma-system) | jq .version
 ```
 
 output
 ```text
-2.8.0.0-enterprise-edition
+1.6.0
 ```
 
-Configure Kong Manager Service
-```bash
-oc patch deploy -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"$(oc get route -n kong kong-kong-admin -ojsonpath='{.spec.host}')\" }]}]}}}}"
+Visit the Control Plane UI in the Browser
 ```
-
-Log into Kong Manager in the browser
-```
-oc get routes -n kong kong-kong-manager -ojsonpath='{.spec.host}'
+oc get route kuma-control-plane -n kuma-system --template='{{ .spec.host }}'
 ```
 
 ## Deploy Kong Gateway Data Plane
