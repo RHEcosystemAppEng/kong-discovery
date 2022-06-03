@@ -89,16 +89,59 @@ openshift-service-ca            service-ca-7bffb6f6bf-482ff           1/1     Ru
 ```
 
 ## Deploy Kong Mesh
-Download `kumactl`
-```
-curl -L https://docs.konghq.com/mesh/installer.sh | sh -
-```
+Download `kumactl`. At the time of this demo there are problems with downloading `kumactl` from the `installer.sh` script.   
+
+<details>
+  <summary>Fedora/CentOS</summary>
+
+  ```bash
+  wget -O kumactl.tar.gz https://download.konghq.com/mesh-alpine/kuma-1.6.0-centos-amd64.tar.gz
+
+  tar -zxvf kumactl.tar.gz
+
+  sudo mv kuma-1*/bin/kumactl /usr/local/bin/
+
+  rm -rf kuma-1*
+
+  rm kumactl.tar.gz
+
+  kumactl version
+  ```
+
+  output
+  ```bash
+  Client: Kuma 1.6.0
+  ```
+</details>
 
 
-Install control plane on kong-mesh-system namespace
+<details>
+  <summary>Mac</summary>
+
+  ```bash
+  wget -O kumactl.tar.gz https://download.konghq.com/mesh-alpine/kuma-1.6.0-darwin-amd64.tar.gz
+
+  tar -zxvf kumactl.tar.gz
+
+  sudo mv kuma-1*/bin/kumactl /usr/local/bin/
+
+  rm -rf kuma-1*
+
+  rm kumactl.tar.gz
+
+  kumactl version
+  ```
+
+  output
+  ```bash
+  Client: Kuma 1.6.0
+  ```
+</details>
+
+Install control plane on kong-mesh-system namespace. (Make sure license is in a file called `license`)
 
 ```bash
-./kumactl install control-plane --cni-enabled --license-path=./license | oc apply -f -
+kumactl install control-plane --cni-enabled --license-path=./license | oc apply -f -
 oc get pod -n kong-mesh-system
 ```
 
