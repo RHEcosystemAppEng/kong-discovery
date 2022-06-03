@@ -1,6 +1,6 @@
 # Kong Mesh on MicroShift
 
-With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In this document we will deploy Kong Mesh on MicroShift to validate that it performs and works as expected. This document has been tested on `Fedora 35`. This document corresponds to the [Kong Gateway](https://docs.google.com/document/d/122_muJ2sRPR1Qd1ajh5Oh6ogkOnevzVWhWi_gw3xh9c/edit#) doc.
+With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In this document we will deploy Kong Mesh on MicroShift to validate that it performs and works as expected. This document has been tested on `Fedora 35`. This document corresponds to the [Kong Mesh](https://github.com/RHEcosystemAppEng/kong-discovery/blob/main/kong-mesh.md) doc.
 
 **TOC**  
 - [Prerequisites](#prerequisites)
@@ -434,6 +434,7 @@ oc port-forward svc/grafana -n kuma-system 3000:80
 Open [http://localhost:3000](http://localhost:3000) in the browser. Login with username `admin` and password `admin`
 
 ## Tracing
+
 Install kuma tracing
 ```bash
 kumactl install tracing | oc apply -f -
@@ -702,4 +703,4 @@ Since this is just a container, we will just delete the container, restore /etc/
 </details>
 
 ## Resources
-- [Kong Gateway Doc](https://docs.google.com/document/d/122_muJ2sRPR1Qd1ajh5Oh6ogkOnevzVWhWi_gw3xh9c/edit#)
+- [Kong Mesh Doc](https://github.com/RHEcosystemAppEng/kong-discovery/blob/main/kong-mesh.md)
