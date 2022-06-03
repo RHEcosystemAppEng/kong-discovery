@@ -8,7 +8,7 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 - [Deploy Kong Mesh](#deploy-kong-mesh)
 - [Deploy Kuma Demo](#deploy-kuma-demo)
 - [Traffic Metrics](#traffic-metrics)
-- [Ingress Creation](#ingress-creation)
+- [Tracing](#tracing)
 - [Clean Up](#clean-up)
 - [Resources](#resources)
 
@@ -399,6 +399,30 @@ oc wait --for=condition=ready pod -l app=prometheus -n kuma-metrics --timeout=24
 oc wait --for=condition=ready pod -l app=grafana -n kuma-metrics --timeout=240s
 ```
 
+Configure the metrics in the existing mesh
+```bash
+oc apply -f -<<EOF
+apiVersion: kuma.io/v1alpha1
+kind: Mesh
+metadata:
+  name: default
+spec:
+  mtls:
+    enabledBackend: ca-1
+    backends:
+    - name: ca-1
+      type: builtin
+  metrics:
+    enabledBackend: prometheus-1
+    backends:
+    - name: prometheus-1
+      type: prometheus
+      conf:
+        port: 5670
+        path: /metrics
+        skipMTLS: true
+EOF
+```
 View the Grafana Dashboard to verify that it is working and metrics are being written to prometheus
 ```
 oc port-forward svc/grafana -n kuma-system 3000:80
@@ -406,211 +430,66 @@ oc port-forward svc/grafana -n kuma-system 3000:80
 
 Open [http://localhost:3000](http://localhost:3000) in the browser. Login with username `admin` and password `admin`
 
-**Note** - not all of the dashboads work
-
-## Configure Sample App From Control Plane
-Define a service from the Control Plane for the sample app
+## Tracing
+Install kuma tracing
 ```bash
-http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services name=sampleservice url='http://sample.default.svc.cluster.local:5000'
+kumactl install tracing | oc apply -f -
 ```
-output
-```
-HTTP/1.1 201 Created
-access-control-allow-origin: *
-content-length: 397
-content-type: application/json; charset=utf-8
-date: Wed, 01 Jun 2022 19:02:48 GMT
-server: kong/2.8.0.0-enterprise-edition
-set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=3f200a7eb4664f634001ded36de03298; path=/; HttpOnly
-x-kong-admin-latency: 10
-x-kong-admin-request-id: pUInKj5QlBQS4nIzKDCmlE0LhbXv6IvT
-
-{
-    "ca_certificates": null,
-    "client_certificate": null,
-    "connect_timeout": 60000,
-    "created_at": 1654110168,
-    "enabled": true,
-    "host": "sample.default.svc.cluster.local",
-    "id": "51285acf-946a-4b50-98f1-46b954cb7e2f",
-    "name": "sampleservice",
-    "path": null,
-    "port": 5000,
-    "protocol": "http",
-    "read_timeout": 60000,
-    "retries": 5,
-    "tags": null,
-    "tls_verify": null,
-    "tls_verify_depth": null,
-    "updated_at": 1654110168,
-    "write_timeout": 60000
-}
-```
-
-Now define a route for the sample app from the Control Plane
-```bash
-http -v $(oc get route -n kong kong-kong-admin --template='{{ .spec.host }}')/services/sampleservice/routes name='httpbinroute' paths:='["/sample"]'
-```
-output
-```shell
-POST /services/sampleservice/routes HTTP/1.1
-Accept: application/json, */*;q=0.5
-Accept-Encoding: gzip, deflate
-Connection: keep-alive
-Content-Length: 46
-Content-Type: application/json
-Host: kong-admin.microshift.io
-User-Agent: HTTPie/3.1.0
-
-{
-    "name": "httpbinroute",
-    "paths": [
-        "/sample"
-    ]
-}
-
-
-HTTP/1.1 201 Created
-access-control-allow-origin: *
-content-length: 486
-content-type: application/json; charset=utf-8
-date: Wed, 01 Jun 2022 19:08:35 GMT
-server: kong/2.8.0.0-enterprise-edition
-set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=3f200a7eb4664f634001ded36de03298; path=/; HttpOnly
-x-kong-admin-latency: 19
-x-kong-admin-request-id: oRgYHkfqzLPgC1tG4K0A7UACG9ssIswT
-
-{
-    "created_at": 1654110515,
-    "destinations": null,
-    "headers": null,
-    "hosts": null,
-    "https_redirect_status_code": 426,
-    "id": "728bb528-996c-41d9-99ce-fea51a593041",
-    "methods": null,
-    "name": "httpbinroute",
-    "path_handling": "v0",
-    "paths": [
-        "/sample"
-    ],
-    "preserve_host": false,
-    "protocols": [
-        "http",
-        "https"
-    ],
-    "regex_priority": 0,
-    "request_buffering": true,
-    "response_buffering": true,
-    "service": {
-        "id": "51285acf-946a-4b50-98f1-46b954cb7e2f"
-    },
-    "snis": null,
-    "sources": null,
-    "strip_path": true,
-    "tags": null,
-    "updated_at": 1654110515
-}
-```
-
-Validate the sample app by calling through Data Plane Proxy
-```
-http $(oc get route -n kong-dp kong-kong-proxy -ojsonpath='{.spec.host}')/sample/hello
-```
-
-output
-```shell
-HTTP/1.1 200 OK
-cache-control: private
-content-length: 45
-content-type: text/html; charset=utf-8
-date: Wed, 01 Jun 2022 19:37:29 GMT
-server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 7439e381b0d6fc4efb69077feca119cd=c7db98c21c993951f6ffbf9112653534; path=/; HttpOnly
-via: kong/2.8.0.0-enterprise-edition
-x-kong-proxy-latency: 40
-x-kong-upstream-latency: 1
-
-Hello World, Kong: 2022-06-01 19:37:29.644071
-```
-
-## Ingress Creation
-Now, lets use the ingress.   
-   
-Create a service of type `ExternalName`
+ 
+Configure tracing in the existing mesh
 ```bash
 oc apply -f -<<EOF
-apiVersion: v1
-kind: Service
+apiVersion: kuma.io/v1alpha1
+kind: Mesh
 metadata:
-  name: route1-ext
-  namespace: default
+  name: default
 spec:
-  type: ExternalName
-  externalName: httpbin.org
+  mtls:
+    enabledBackend: ca-1
+    backends:
+    - name: ca-1
+      type: builtin
+  tracing:
+    defaultBackend: jaeger-collector
+    backends:
+    - name: jaeger-collector
+      type: zipkin
+      sampling: 100.0
+      conf:
+        url: http://jaeger-collector.kuma-tracing:9411/api/v2/spans    
+  metrics:
+    enabledBackend: prometheus-1
+    backends:
+    - name: prometheus-1
+      type: prometheus
+      conf:
+        port: 5670
+        path: /metrics
+        skipMTLS: false
 EOF
 ```
 
-Create the Ingress resource
+Add TrafficTrace resource
 ```bash
 oc apply -f -<<EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: kuma.io/v1alpha1
+kind: TrafficTrace
+mesh: default
 metadata:
-  name: route1
-  namespace: default
-  annotations:
-    konghq.com/strip-path: "true"
-    kubernetes.io/ingress.class: kong
+  name: trace-all-traffic
 spec:
-  rules:
-  - http:
-      paths:
-        - path: /route1
-          pathType: Prefix
-          backend:
-            service:
-              name: route1-ext
-              port:
-                number: 80
+  selectors:
+  - match:
+      kuma.io/service: '*'
+  conf:
+    backend: jaeger-collector # or the name of any backend defined for the mesh 
 EOF
 ```
 
-Consume the ingress to make sure everything is working
+Update the jaeger datasource in grafana: Go to the [Grafana UI](http://localhost:3000) -> Settings -> Data Sources -> Jaeger 
+and set the URL to http://jaeger-query.kuma-tracing/
 ```bash
-http $(oc get route -n kong-dp kong-kong-proxy -ojsonpath='{.spec.host}')/route1/get
-```
-
-output
-```bash
-HTTP/1.1 200 OK
-access-control-allow-credentials: true
-access-control-allow-origin: *
-cache-control: private
-content-length: 552
-content-type: application/json
-date: Wed, 01 Jun 2022 19:54:52 GMT
-server: gunicorn/19.9.0
-set-cookie: 7439e381b0d6fc4efb69077feca119cd=c7db98c21c993951f6ffbf9112653534; path=/; HttpOnly
-via: kong/2.8.0.0-enterprise-edition
-x-kong-proxy-latency: 0
-x-kong-upstream-latency: 258
-
-{
-    "args": {},
-    "headers": {
-        "Accept": "*/*",
-        "Accept-Encoding": "gzip, deflate",
-        "Forwarded": "for=10.88.0.1;host=kong-proxy.microshift.io;proto=http",
-        "Host": "kong-proxy.microshift.io",
-        "User-Agent": "HTTPie/3.1.0",
-        "X-Amzn-Trace-Id": "Root=1-6297c40b-36eca29948f1422d1feae351",
-        "X-Forwarded-Host": "kong-proxy.microshift.io",
-        "X-Forwarded-Path": "/route1/get",
-        "X-Forwarded-Prefix": "/route1/"
-    },
-    "origin": "10.88.0.1, 10.42.0.1, 99.46.157.144",
-    "url": "http://kong-proxy.microshift.io/get"
-}
+oc port-forward svc/grafana -n kuma-metrics 3000:80
 ```
 
 
