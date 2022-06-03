@@ -9,6 +9,8 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 - [Deploy Kuma Demo](#deploy-kuma-demo)
 - [Traffic Metrics](#traffic-metrics)
 - [Tracing](#tracing)
+- [Logging](#logging)
+- [Fault Injection](#fault-injection)
 - [Clean Up](#clean-up)
 - [Resources](#resources)
 
@@ -600,7 +602,59 @@ and set the URL to http://loki.kong-mesh-logging:3100/
 oc port-forward svc/grafana -n kuma-metrics 3000:80
 ```
 
+## Fault Injection
+
+FaultInjections helps testing our microservices against resiliency. There are 3 different types of failures that could be imitated in our environment:
+
+- [Delay](https://kuma.io/docs/1.6.x/policies/fault-injection/#delay)
+- [Abort](https://kuma.io/docs/1.6.x/policies/fault-injection/#abort)
+- [ResponseBandwidth](https://kuma.io/docs/1.5.x/policies/fault-injection/#responsebandwidth-limit)
+
+Create an example FaultInjection that adds a bit of everything:
+
+```bash
+oc apply -f -<<EOF
+apiVersion: kuma.io/v1alpha1
+kind: FaultInjection
+mesh: default
+metadata:
+  name: example-fi
+spec:
+  sources:
+    - match:
+        kuma.io/service: frontend_kuma-demo_svc_8080
+        kuma.io/protocol: http
+  destinations:
+    - match:
+        kuma.io/service: backend_kuma-demo_svc_3001
+        kuma.io/protocol: http
+  conf:        
+    abort:
+      httpStatus: 500
+      percentage: 50
+    delay:
+      percentage: 50.5
+      value: 5s
+    responseBandwidth:
+      limit: 50 mbps
+      percentage: 50 
+EOF
+```
+
+Then browse the application and see how the website resources randomly fail to be fetched, are delayed or corrupted (due to the bandwitdh limitation). Open the demo route in the browser
+```bash
+oc get routes frontend -n kuma-demo --template='{{ .spec.host }}'
+```
+
+Once finished, remove the faultInjection resource
+
+```bash
+oc delete faultinjection example-fi
+```
+
 ## Clean Up
+Since this is just a container, we will just delete the container, restore /etc/hosts, and clean up our container runtime environment.
+
 <details>
   <summary>Linux</summary>
   Remove files created during demo
