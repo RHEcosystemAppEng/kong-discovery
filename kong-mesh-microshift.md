@@ -392,6 +392,7 @@ Due to the problem stated above, remove the sidecars from the namespace label an
 oc label ns/kuma-metrics kuma.io/sidecar-injection-
 oc delete po -n kuma-metrics --all --force --grace-period=0
 ```
+
 Wait for the demo app to be ready
 ```bash
 oc wait --for=condition=ready pod -l app=prometheus -n kuma-metrics --timeout=240s
@@ -435,9 +436,14 @@ Install kuma tracing
 ```bash
 kumactl install tracing | oc apply -f -
 ```
- 
-Configure tracing in the existing mesh
+
+Wait for the jaegar pod to be ready
 ```bash
+oc wait --for=condition=ready pod -l app.kubernetes.io/name=jaeger -n kuma-tracing --timeout=240s
+```
+
+Configure tracing in the existing mesh
+```yaml
 oc apply -f -<<EOF
 apiVersion: kuma.io/v1alpha1
 kind: Mesh
@@ -492,6 +498,107 @@ and set the URL to http://jaeger-query.kuma-tracing/
 oc port-forward svc/grafana -n kuma-metrics 3000:80
 ```
 
+## Logging
+
+The loki statefulset requires anyuid capabilities so the anyuid should be used
+```bash
+oc adm policy add-scc-to-group anyuid system:serviceaccounts:kuma-logging
+```
+
+Install Logging
+```bash
+kumactl install logging | oc apply -f -
+```
+
+Wait for the demo app to be ready
+```bash
+oc wait --for=condition=ready pod -l app=loki -n kuma-logging --timeout=240s
+
+oc wait --for=condition=ready pod -l app=promtail -n kuma-logging --timeout=240s
+```
+
+Add logging backend to the existing mesh
+```yaml
+oc apply -f -<<EOF
+apiVersion: kuma.io/v1alpha1
+kind: Mesh
+metadata:
+  name: default
+spec:
+  mtls:
+    enabledBackend: ca-1
+    backends:
+    - name: ca-1
+      type: builtin
+  logging:
+    # TrafficLog policies may leave the `backend` field undefined.
+    # In that case the logs will be forwarded into the `defaultBackend` of that Mesh.
+    defaultBackend: loki
+    # List of logging backends that can be referred to by name
+    # from TrafficLog policies of that Mesh.
+    backends:
+      - name: loki
+        type: file
+        conf:
+          path: /dev/stdout
+      - name: logstash
+        # Use `format` field to adjust the access log format to your use case.
+        format: '{"start_time": "%START_TIME%", "source": "%KUMA_SOURCE_SERVICE%", "destination": "%KUMA_DESTINATION_SERVICE%", "source_address": "%KUMA_SOURCE_ADDRESS_WITHOUT_PORT%", "destination_address": "%UPSTREAM_HOST%", "duration_millis": "%DURATION%", "bytes_received": "%BYTES_RECEIVED%", "bytes_sent": "%BYTES_SENT%"}'
+        type: tcp
+        # Use `config` field to co configure a TCP logging backend.
+        conf:
+          # Address of a log collector.
+          address: 127.0.0.1:5000
+      - name: file
+        type: file
+        # Use `file` field to configure a file-based logging backend.
+        conf:
+          path: /tmp/access.log
+        # When `format` field is omitted, the default access log format will be used.
+  tracing:
+    defaultBackend: jaeger-collector
+    backends:
+    - name: jaeger-collector
+      type: zipkin
+      sampling: 100.0
+      conf:
+        url: http://jaeger-collector.kuma-tracing:9411/api/v2/spans    
+  metrics:
+    enabledBackend: prometheus-1
+    backends:
+    - name: prometheus-1
+      type: prometheus
+      conf:
+        port: 5670
+        path: /metrics
+        skipMTLS: true
+EOF
+```
+
+Create the TrafficLog
+```yaml
+oc apply -f -<<EOF
+apiVersion: kuma.io/v1alpha1
+kind: TrafficLog
+metadata:
+  name: all-traffic
+mesh: default
+spec:
+  # This TrafficLog policy applies all traffic in that Mesh.
+  sources:
+    - match:
+        kuma.io/service: '*'
+  destinations:
+    - match:
+        kuma.io/service: '*'
+EOF
+```
+
+Update the loki datasource in grafana: Go to the [Grafana UI](http://localhost:3000) -> Settings -> Data Sources -> Loki 
+and set the URL to http://loki.kong-mesh-logging:3100/
+```bash
+oc port-forward svc/grafana -n kuma-metrics 3000:80
+```
 
 ## Clean Up
 <details>
