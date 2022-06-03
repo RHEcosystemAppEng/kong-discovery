@@ -5,7 +5,6 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 - [Prerequisites](#prerequisites)
 - [Install MicroShift](#install-microshift)
 - [Deploy Kong Mesh](#deploy-kong-mesh)
-<!-- - [Deploy Kong Gateway Data Plane](#deploy-kong-gateway-data-plane) -->
 - [Deploy Kuma Demo](#deploy-kuma-demo)
 - [Configure Sample App from Control Plane](#configure-sample-app-from-control-plane)
 - [Ingress Creation](#ingress-creation)
@@ -185,219 +184,170 @@ Visit the Control Plane UI in the Browser
 oc get route kuma-control-plane -n kuma-system --template='{{ .spec.host }}'
 ```
 
-## Deploy Kong Gateway Data Plane
-Similarly to the Control Plane, let's create the namespace with the secret containing the license
 
+## Deploy Kuma Demo
+In case of Kuma Demo, one of the component requires root access therefore we use anyuid instead of nonroot permission.  
+
+Apply scc of anyuid to kuma-demo  
 ```bash
-oc new-project kong-dp
-oc create secret generic kong-enterprise-license -n kong-dp --from-file=license=license.json
+oc adm policy add-scc-to-group anyuid system:serviceaccounts:kuma-demo
 ```
 
-Now, lets re-use the generated certificates to create a secret in the Data Plane namespace
-
+Deploy the demo app in the `kuma-demo` ns
 ```bash
-oc create secret tls kong-cluster-cert --cert=cluster.crt --key=cluster.key -n kong-dp
+oc apply -f https://raw.githubusercontent.com/kumahq/kuma-demo/master/kubernetes/kuma-demo-aio.yaml
 ```
 
-Deploy the Data Plane from the Helm Chart
-```yaml
-cat <<EOF> values.yaml
-ingressController:
-  enabled: false
-image:
-  repository: kong/kong-gateway
-  tag: 2.8.0.0-alpine
-  unifiedRepoTag: kong/kong-gateway:2.8.0.0-alpine
-env:
-  database: "off"
-  role: data_plane
-  cluster_cert: /etc/secrets/kong-cluster-cert/tls.crt
-  cluster_cert_key: /etc/secrets/kong-cluster-cert/tls.key
-  lua_ssl_trusted_certificate: /etc/secrets/kong-cluster-cert/tls.crt
-  cluster_control_plane: kong-kong-cluster.kong.svc.cluster.local:8005
-  cluster_telemetry_endpoint: kong-kong-clustertelemetry.kong.svc.cluster.local:8006
-  status_listen: 0.0.0.0:8100
-proxy:
-  enabled: true
-  type: ClusterIP
-secretVolumes: 
-  - kong-cluster-cert
-enterprise:
-  enabled: true
-  license_secret: kong-enterprise-license
-  portal:
-    enabled: false
-  rbac:
-    enabled: false
-  smtp:
-    enabled: false
-admin:
-  enabled: false
-manager:
-  enabled: false
-portal:
-  enabled: false
-portalapi:
-  enabled: false  
-EOF
-helm install kong -n kong-dp kong/kong -f values.yaml
+Wait for the demo app to be ready
+```bash
+oc wait --for=condition=ready pod -l app=kuma-demo-frontend -n kuma-demo --timeout=240s
+
+oc wait --for=condition=ready pod -l app=kuma-demo-backend -n kuma-demo --timeout=240s
+
+oc wait --for=condition=ready pod -l app=postgres -n kuma-demo --timeout=240s
+
+oc wait --for=condition=ready pod -l app=redis -n kuma-demo --timeout=240s
 ```
 
-Wait for the data plane pod to be ready
+Expose the frontend service as an OpenShift route:
 ```bash
-oc wait --for=condition=ready pod -l app.kubernetes.io/component=app -n kong-dp --timeout=180s
-```
-Expose the Proxy Service
-```bash
-oc expose svc/kong-kong-proxy -n kong-dp --port=kong-proxy --hostname=kong-proxy.microshift.io
-
-oc create route passthrough kong-kong-proxy-tls --port=kong-proxy-tls --hostname=kong-proxy-tls.microshift.io --service=kong-kong-proxy -n kong-dp
+oc expose svc/frontend --port=http --hostname=frontend.microshift.io -n kuma-demo
 ```
 
 Explain to our local node how to resolve requests to our routes:
 ```bash
 export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
-sudo sh -c  "echo $IP kong-proxy.microshift.io kong-proxy-tls.microshift.io >> /etc/hosts"
+sudo sh -c  "echo $IP frontend.microshift.io >> /etc/hosts"
 ```
 
-Validate `/etc/hosts` has been properly updated, expect to see kong-proxy, kong-proxy-tls
-```bash
-tail -1 /etc/hosts
-```
-output
-```text
-10.88.0.4 kong-proxy.microshift.io kong-proxy-tls.microshift.io
-```
-
-Check the Data Plane from the Control Plane to make sure the Data Plane is part of the cluster:
-```bash
-http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/clustering/status
-```
-
-output
-```text
-HTTP/1.1 200 OK
-access-control-allow-origin: *
-cache-control: private
-content-length: 170
-content-type: application/json; charset=utf-8
-date: Wed, 01 Jun 2022 13:57:06 GMT
-deprecation: true
-server: kong/2.8.1
-set-cookie: 9da87f6e8821b5f9e46a0f05aee42078=5bd1a33699c17cb7a92c693484aa8ad8; path=/; HttpOnly
-x-kong-admin-latency: 5
-
-{
-    "b53487b3-752b-4ac5-8a64-f75e3592ca7c": {
-        "config_hash": "569818cb13aa3a90b1d72ca8225cd0cf",
-        "hostname": "kong-kong-77594db78-tkmz8",
-        "ip": "10.42.0.1",
-        "last_seen": 1654091809
-    }
-}
-```
-
-**NOTE** Notice that this part fails above 👆 (we should see the kong-dp-kong). This is an exploratory spike so lets just take note that it does not work as expected and move on. If you see a problem or have a solution- i'm all ears. This is the only thing that I cannot get to work, but the rest of the document works just fine. **This _could_ be a false positive.**
-
-
-Check the Data Plane Proxy to ensure that it is working:
-```bash
-http `oc get route -n kong-dp kong-kong-proxy --template='{{ .spec.host }}'`/
-```
-
-output
-```
-HTTP/1.1 404 Not Found
-cache-control: private
-content-length: 48
-content-type: application/json; charset=utf-8
-date: Wed, 01 Jun 2022 13:59:14 GMT
-server: kong/2.8.1
-set-cookie: 7439e381b0d6fc4efb69077feca119cd=479354089fd040bb701b8f071fefdb6c; path=/; HttpOnly
-x-kong-response-latency: 0
-
-{
-    "message": "no Route matched with those values"
-}
-```
-
-## Deploy Sample App
-```bash
-oc apply -f -<<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: sample
-  namespace: default
-  labels:
-    app: sample
-spec:
-  type: ClusterIP
-  ports:
-  - port: 5000
-    name: http
-  selector:
-    app: sample
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: sample
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: sample
-  template:
-    metadata:
-      labels:
-        app: sample
-        version: v1
-    spec:
-      containers:
-      - name: sample
-        image: claudioacquaviva/sampleapp
-        ports:
-        - containerPort: 5000
-EOF
-```
-
-Wait for the sample app to be ready
-```bash
-oc wait --for=condition=ready pod -l app=sample -n default --timeout=240s
-```
-
-Expose the sample service as an OpenShift route:
-```bash
-oc expose svc/sample -n default --port=http --hostname=sample.microshift.io
-```
-
-Explain to our local node how to resolve requests to our routes:
-```bash
-export IP=$(oc get no -ojsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
-sudo sh -c  "echo $IP sample.microshift.io >> /etc/hosts"
-```
-
-Validate `/etc/hosts` has been properly updated, expect to see sample
+Validate `/etc/hosts` has been properly updated, expect to see frontend.microshift.io
 ```bash
 tail -1 /etc/hosts
 ```
 
 Validate the sample app deployment
 ```bash
-http -h `oc get route sample -n default -ojson | jq -r .spec.host` 
+http -h `oc get route frontend -n kuma-demo -ojson | jq -r .spec.host` 
 ```
 output
 ```text
-HTTP/1.0 200 OK
+HTTP/1.1 200 OK
+cache-control: max-age=3600
 cache-control: private
-connection: keep-alive
-content-length: 17
-content-type: text/html; charset=utf-8
-date: Wed, 01 Jun 2022 19:15:34 GMT
-server: Werkzeug/1.0.1 Python/3.7.4
-set-cookie: 9f28662b21dec84df02ebb0dbf99421a=d21d14562fc74578d6ec0c72e4900052; path=/; HttpOnly
+content-length: 862
+content-type: text/html; charset=UTF-8
+date: Fri, 03 Jun 2022 16:19:55 GMT
+etag: W/"2636989-862-2020-08-16T00:52:19.000Z"
+last-modified: Sun, 16 Aug 2020 00:52:19 GMT
+server: ecstatic-3.3.2
+set-cookie: 7132be541f54d5eca6de5be20e9063c8=ddb0616062b2172f75a417f6f266575c; path=/; HttpOnly
+```
+
+The demo app includes the kuma.io/sidecar-injection label enabled on the kuma-demo namespace
+```bash
+oc get ns kuma-demo -ojsonpath='{ .metadata.annotations.kuma\.io/sidecar-injection }'
+```
+output
+```bash
+enabled
+```
+
+Check sidecar injection has been performed.
+```bash
+oc -n kuma-demo get po -ojson | jq '.items[] | .spec.containers[] | .name '
+```
+output
+```bash
+"kuma-fe"
+"kuma-sidecar"
+"kuma-be"
+"kuma-sidecar"
+"master"
+"kuma-sidecar"
+"master"
+"kuma-sidecar"
+```
+
+Enable mTLS
+```yaml
+oc apply -f -<<EOF
+apiVersion: kuma.io/v1alpha1
+kind: Mesh
+metadata:
+  name: default
+spec:
+  mtls:
+    enabledBackend: ca-1
+    backends:
+    - name: ca-1
+      type: builtin
+EOF
+```
+Delete the default traffic permission
+```bash
+oc delete trafficpermission allow-all-default 
+```
+
+Enable Traffic Permissions
+```yaml
+oc apply -f -<<EOF
+apiVersion: kuma.io/v1alpha1
+kind: TrafficPermission
+mesh: default
+metadata:
+  namespace: kuma-demo
+  name: frontend-to-backend
+spec:
+  sources:
+  - match:
+      kuma.io/service: frontend_kuma-demo_svc_8080
+  destinations:
+  - match:
+      kuma.io/service: backend_kuma-demo_svc_3001
+---
+apiVersion: kuma.io/v1alpha1
+kind: TrafficPermission
+mesh: default
+metadata:
+  namespace: kuma-demo
+  name: backend-to-postgres
+spec:
+  sources:
+  - match:
+      kuma.io/service: backend_kuma-demo_svc_3001
+  destinations:
+  - match:
+      kuma.io/service: postgres_kuma-demo_svc_5432
+---
+apiVersion: kuma.io/v1alpha1
+kind: TrafficPermission
+mesh: default
+metadata:
+  namespace: kuma-demo
+  name: backend-to-redis
+spec:
+  sources:
+  - match:
+      kuma.io/service: backend_kuma-demo_svc_3001
+  destinations:
+  - match:
+      kuma.io/service: redis_kuma-demo_svc_6379
+EOF
+```
+output
+```bash
+trafficpermission.kuma.io/frontend-to-backend created
+trafficpermission.kuma.io/backend-to-postgres created
+trafficpermission.kuma.io/backend-to-redis created
+```
+
+Visit the Control Plane UI in the Browser
+```
+oc get route kuma-control-plane -n kuma-system --template='{{ .spec.host }}'/gui/#/meshes/default
+```
+Search for MTLS in the page, you should see:
+```bash
+builtin ca-1
 ```
 
 ## Configure Sample App From Control Plane
