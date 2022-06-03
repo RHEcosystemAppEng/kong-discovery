@@ -46,7 +46,10 @@ oc create secret generic kong-session-config -n kong --from-file=admin_gui_sessi
 oc create secret generic kong-enterprise-superuser-password -n kong --from-literal=password=kong
 ```
 
+- Install Kong Gateway
+```bash
 helm install kong kong/kong -n kong --values gateway-values.yaml
+```
 
 ### Expose svcs
 
