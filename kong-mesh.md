@@ -250,7 +250,8 @@ Update the grafana datasource to `http://loki.kong-mesh-logging:3100`
 
 ## FaultInjection
 
-FaultInjections helps testing our microservices against resiliency. There are 3 different types of failures that could be imitated in our environment:
+FaultInjections helps testing our microservices against resiliency. There are 3 different ypes of failures that could be 
+imitated in our environment:
 
 - [Delay](https://kuma.io/docs/1.6.x/policies/fault-injection/#delay)
 - [Abort](https://kuma.io/docs/1.6.x/policies/fault-injection/#abort)
