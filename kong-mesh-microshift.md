@@ -1,4 +1,5 @@
 # Kong Mesh on MicroShift
+
 With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In this document we will deploy Kong Mesh on MicroShift to validate that it performs and works as expected. This document has been tested on `Fedora 35`. This document corresponds to the [Kong Gateway](https://docs.google.com/document/d/122_muJ2sRPR1Qd1ajh5Oh6ogkOnevzVWhWi_gw3xh9c/edit#) doc.
 
 **TOC**  
@@ -6,12 +7,13 @@ With MicroShift, we get a full OpenShift 4.9 Deployment on a single node. In thi
 - [Install MicroShift](#install-microshift)
 - [Deploy Kong Mesh](#deploy-kong-mesh)
 - [Deploy Kuma Demo](#deploy-kuma-demo)
-- [Configure Sample App from Control Plane](#configure-sample-app-from-control-plane)
+- [Traffic Metrics](#traffic-metrics)
 - [Ingress Creation](#ingress-creation)
 - [Clean Up](#clean-up)
 - [Resources](#resources)
 
 ## Prerequisites
+
 Before starting, make sure you have at least:
 - a supported 64-bit2 CPU architecture (amd64/x86_64, arm64, or riscv64)
 - a supported OS (Linux, Mac, Windows)
@@ -21,6 +23,7 @@ Before starting, make sure you have at least:
 - httpie, jq, helm3
 
 ## Install MicroShift
+
 The [installation process](https://microshift.io/docs/getting-started/#using-microshift-for-application-development) for MicroShift varies across different Operating Systems, nevertheless, a container runtime is a requirement regardless of the underlying operating system.
 
 <details>
@@ -88,6 +91,7 @@ openshift-service-ca            service-ca-7bffb6f6bf-482ff           1/1     Ru
 ```
 
 ## Deploy Kong Mesh
+
 Download `kumactl`. At the time of this demo there are problems with downloading `kumactl` from the `installer.sh` script.   
 
 <details>
@@ -186,6 +190,7 @@ oc get route kuma-control-plane -n kuma-system --template='{{ .spec.host }}'
 
 
 ## Deploy Kuma Demo
+
 In case of Kuma Demo, one of the component requires root access therefore we use anyuid instead of nonroot permission.  
 
 Apply scc of anyuid to kuma-demo  
@@ -288,7 +293,7 @@ Delete the default traffic permission
 oc delete trafficpermission allow-all-default 
 ```
 
-Enable Traffic Permissions
+Enable specific Traffic Permissions
 ```yaml
 oc apply -f -<<EOF
 apiVersion: kuma.io/v1alpha1
@@ -349,6 +354,59 @@ Search for MTLS in the page, you should see:
 ```bash
 builtin ca-1
 ```
+
+## Traffic Metrics
+
+Typically we would have sidecars enabled when we install metrics. In this case on MicroShift, the `grafana` and `prometheus` pods do not come up with sidecars enabled. This time it is not because of the initContainer, which actually works, but because they both fail the liveness/readiness probes. (Step is performed after metrics installation)
+```bash
+oc get po -n kuma-metrics
+```
+output
+```bash
+NAME                                             READY   STATUS    RESTARTS   AGE
+grafana-784fb96cbb-7jmzg                         1/2     Running   4          10m
+prometheus-alertmanager-fd98dd68b-hnxbh          3/3     Running   0          10m
+prometheus-kube-state-metrics-5ddc7b5dfd-p4728   2/2     Running   0          10m
+prometheus-node-exporter-z4n8h                   1/1     Running   0          10m
+prometheus-pushgateway-67c7db48fd-b6tw2          2/2     Running   0          10m
+prometheus-server-66889f8847-gpq4p               0/3     Pending   0          10m
+```
+
+Don't take my word for it, check it out. Do not remove the sidecar-injection labels and you can see for yourself.
+```bash
+# grafana logs
+oc logs deploy/grafana -c grafana -n kuma-metrics 
+
+# get events -n kuma-metrics
+oc get ev -n kuma-metrics --sort-by='.lastTimestamp'
+```
+
+
+Install Kuma Metrics
+```bash
+kumactl install metrics | oc apply -f -
+```
+
+Due to the problem stated above, remove the sidecars from the namespace label and roll the pods:
+```bash
+oc label ns/kuma-metrics kuma.io/sidecar-injection-
+oc delete po -n kuma-metrics --all --force --grace-period=0
+```
+Wait for the demo app to be ready
+```bash
+oc wait --for=condition=ready pod -l app=prometheus -n kuma-metrics --timeout=240s
+
+oc wait --for=condition=ready pod -l app=grafana -n kuma-metrics --timeout=240s
+```
+
+View the Grafana Dashboard to verify that it is working and metrics are being written to prometheus
+```
+oc port-forward svc/grafana -n kuma-system 3000:80
+```
+
+Open [http://localhost:3000](http://localhost:3000) in the browser. Login with username `admin` and password `admin`
+
+**Note** - not all of the dashboads work
 
 ## Configure Sample App From Control Plane
 Define a service from the Control Plane for the sample app
