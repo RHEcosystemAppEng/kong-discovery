@@ -187,7 +187,7 @@ output
 
 Visit the Control Plane UI in the Browser
 ```
-oc get route kuma-control-plane -n kuma-system --template='{{ .spec.host }}'
+oc get route kuma-control-plane -n kuma-system --template='{{ .spec.host }}'/gui
 ```
 
 
