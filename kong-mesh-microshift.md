@@ -428,7 +428,7 @@ EOF
 ```
 View the Grafana Dashboard to verify that it is working and metrics are being written to prometheus
 ```
-oc port-forward svc/grafana -n kuma-system 3000:80
+oc port-forward svc/grafana -n kuma-metrics 3000:80
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in the browser. Login with username `admin` and password `admin`
