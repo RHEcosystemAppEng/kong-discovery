@@ -6,11 +6,12 @@
   - [Create user for Kuma](#create-user-for-kuma)
   - [Configure Kuma working directory](#configure-kuma-working-directory)
   - [Download Kuma](#download-kuma)
+  - [Configure Kuma license](#configure-kuma-license)
   - [Configure SELinux](#configure-selinux)
   - [Configure systemd service](#configure-systemd-service)
   - [Start Kuma global control plane](#start-kuma-global-control-plane)
-- [Set up the zone control planes](#set-up-the-zone-control-planes)
-- [Setup Data Planes OpenShift Clusters](#setup-data-planes-openshift-clusters)
+  - [Check license](#check-license)
+- [Setup Data Planes on OpenShift Clusters](#setup-data-planes-on-openshift-clusters)
   - [Kuma Data Plane 1](#kuma-data-plane-1)
   - [Kuma Data Plane 2](#kuma-data-plane-2)
   - [Kuma Data Plane 3](#kuma-data-plane-3)
@@ -34,8 +35,8 @@
 
 ## Objective
 
-This document describes [Kuma Service Mesh](https://kuma.io) with
-a Distributed Canary Release running on 4 OpenShift clusters in GCP.
+This document describes [Kuma Mesh](https://docs.konghq.com/mesh) version `1.7` with
+a Distributed Canary Release running on 3 OpenShift clusters in GCP.
 
 Reference architecture
 
@@ -92,9 +93,9 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kuma-cp-ds-$GCP
 
 ⚠️ WARNING
 
-Open `5681` port only if you really want to expose it to the Internet.
+Open `5681` port only for testing purpose.
 
-Otherwise use `oc port-forward` to access Global Control PLane(CP) GUI.
+For production need to use port `5682` (HTTPS version of the services available under 5681)
 
 ```bash
 gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kuma-cp-api-$GCP_VM_NAME \
@@ -107,8 +108,6 @@ gcloud compute --project=$GCP_PROJECT_NAME firewall-rules create kuma-cp-api-$GC
     --source-ranges=0.0.0.0/0 \
     --target-tags=$GCP_VM_NAME
 ```
-
-We will use kuma version `1.6` in this tutorial.
 
 ## Create user for Kuma
 
@@ -128,34 +127,36 @@ sudo mkdir -p $KUMA_WORKING_DIR
 ## Download Kuma
 
 ```bash
-curl -L https://download.konghq.com/mesh-alpine/kuma-1.6.0-rhel-amd64.tar.gz --output kuma-1.6.0-rhel-amd64.tar.gz
-sudo tar xvf kuma-1.6.0-rhel-amd64.tar.gz -C $KUMA_WORKING_DIR
-sudo chown kuma:kuma -R $KUMA_WORKING_DIR
+curl -L https://download.konghq.com/mesh-alpine/kong-mesh-1.7.0-rhel-amd64.tar.gz --output kong-mesh-1.7.0-rhel-amd64.tar.gz 
+sudo tar xvf kong-mesh-1.7.0-rhel-amd64.tar.gz -C $KUMA_WORKING_DIR
 ```
+
+## Configure Kuma license
+
+Upload the license file to the virtual machine and save it to `/opt/kong/kong-mesh-1.7.0/license.json`
 
 ## Configure SELinux
 
 ```bash
+sudo chown kuma:kuma -R $KUMA_WORKING_DIR
 sudo restorecon -R -v $KUMA_WORKING_DIR
 ```
 
 Check `kumactl` version
 
 ```bash
-sudo ln -s $KUMA_WORKING_DIR/kuma-1.6.0/bin/kumactl /usr/local/bin/kumactl
+sudo ln -s $KUMA_WORKING_DIR/kong-mesh-1.7.0/bin/kumactl /usr/local/bin/kumactl
 kumactl version
 ```
 
 Output
 
 ```text
-Client: Kuma 1.6.0
+Client: Kuma Mesh 1.7.0
 Unable to connect to control plane: Get "http://localhost:5681/": dial tcp [::1]:5681: connect: connection refused
 ```
 
 ## Configure systemd service
-
-NOTES: Move to external resource and apply from GitHub raw
 
 ```bash
 cat << EOF | sudo tee /etc/systemd/system/kuma-global-cp.service
@@ -165,12 +166,13 @@ cat << EOF | sudo tee /etc/systemd/system/kuma-global-cp.service
 Description=Kuma global control plane
 Wants=network-online.target
 After=network-online.target
-Documentation=https://kuma.io
+Documentation=https://docs.konghq.com/mesh
 
 [Service]
 Environment=KUMA_ENVIRONMENT=universal
 Environment=KUMA_MODE=global
-ExecStart=/opt/kong/kuma-1.6.0/bin/kuma-cp run
+Environment=KMESH_LICENSE_PATH=/opt/kong/kong-mesh-1.7.0/license.json
+ExecStart=/opt/kong/kong-mesh-1.7.0/bin/kuma-cp run
 Restart=always
 TimeoutStopSec=60
 User=kuma
@@ -187,25 +189,35 @@ sudo systemctl status kuma-global-cp.service
 sudo journalctl -f -u kuma-global-cp.service --no-pager -l
 ```
 
-# Set up the zone control planes
-
-Get Kuma Global Control Plane external IP
+## Check license
 
 ```bash
 export KUMA_KDS_URL=$(gcloud compute instances describe $GCP_VM_NAME  \
       --format='get(networkInterfaces[0].accessConfigs[0].natIP)' \
       --zone=$GCP_ZONE)
+curl $KUMA_KDS_URL:5681/license
 ```
 
-# Setup Data Planes OpenShift Clusters
+Output
+
+```text
+{
+ "allowedDataplaneProxies": 100,
+ "activeDataplaneProxies": 0,
+ "expirationDate": "2023-03-21T00:00:00Z",
+ "demo": false
+}
+```
+
+# Setup Data Planes on OpenShift Clusters
 
 Please follow to the [documentation](https://docs.openshift.com/container-platform/4.8/installing/installing_gcp/installing-gcp-default.html) to install Data Plane OpenShift clusters.
 
 We need to deploy three clusters in GCP
 
-- one clusters in zone `us-central1`
-- one cluster in zone `us-east1`
-- one cluster in zone `us-west1`
+- one clusters in zone `us-central1-a`
+- one cluster in zone `us-east1-b`
+- one cluster in zone `us-west1-b`
 
 ## Kuma Data Plane 1
 
