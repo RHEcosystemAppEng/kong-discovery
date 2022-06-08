@@ -158,6 +158,11 @@ Unable to connect to control plane: Get "http://localhost:5681/": dial tcp [::1]
 
 ## Configure systemd service
 
+The most relevant parameters when configuring the service are:
+
+- `KUMA_ENVIRONMENT=universal` meaning it is not kubernetes
+- `KUMA_MODE=global` for multizone instead of standalone
+- `KMESH_LICENSE_PATH=/opt/kong/kong-mesh-1.7.0/license.json` to specify the path of the license
 ```bash
 cat << EOF | sudo tee /etc/systemd/system/kuma-global-cp.service
 # Possible improvements for limits
