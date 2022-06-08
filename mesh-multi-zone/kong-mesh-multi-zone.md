@@ -30,6 +30,9 @@
   - [Checking benigno-v1 and benigno-v2 DataPlanes](#checking-benigno-v1-and-benigno-v2-dataplanes)
   - [Controlling the Canary Release Traffic](#controlling-the-canary-release-traffic)
   - [Defining a TrafficPermission policy](#defining-a-trafficpermission-policy)
+- [Cleanup](#cleanup)
+  - [Remove VM and firewall rules](#remove-vm-and-firewall-rules)
+  - [Uninstalling OpenShift clusters](#uninstalling-openshift-clusters)
 
 # Executive Summary
 
@@ -163,6 +166,7 @@ The most relevant parameters when configuring the service are:
 - `KUMA_ENVIRONMENT=universal` meaning it is not kubernetes
 - `KUMA_MODE=global` for multizone instead of standalone
 - `KMESH_LICENSE_PATH=/opt/kong/kong-mesh-1.7.0/license.json` to specify the path of the license
+
 ```bash
 cat << EOF | sudo tee /etc/systemd/system/kuma-global-cp.service
 # Possible improvements for limits
@@ -735,3 +739,23 @@ destinations:
       kuma.io/service: '*'
 EOF
 ```
+
+# Cleanup
+
+## Remove VM and firewall rules
+
+```bash
+gcloud compute firewall-rules delete kuma-cp-ds-$GCP_VM_NAME --project=$GCP_PROJECT_NAME --quiet
+gcloud compute firewall-rules delete kuma-cp-api-$GCP_VM_NAME --project=$GCP_PROJECT_NAME --quiet
+gcloud compute instances delete $GCP_VM_NAME --zone=$GCP_ZONE --quiet
+```
+
+## Uninstalling OpenShift clusters
+
+From the directory that contains the installation program on the computer that you used to install the cluster, run the following command:
+
+```bash
+./openshift-install destroy cluster --dir <installation_directory> --log-level=info 
+```
+
+Optional: Delete the `<installation_directory>` and the OpenShift Container Platform installation program.
