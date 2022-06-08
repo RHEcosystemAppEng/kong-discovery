@@ -35,7 +35,7 @@
 
 ## Objective
 
-This document describes [Kuma Mesh](https://docs.konghq.com/mesh) version `1.7` with
+This document describes [Kong Mesh](https://docs.konghq.com/mesh) version `1.7` with
 a Distributed Canary Release running on 3 OpenShift clusters in GCP.
 
 Reference architecture
