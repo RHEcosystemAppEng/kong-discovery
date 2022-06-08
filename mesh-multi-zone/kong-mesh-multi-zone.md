@@ -152,7 +152,7 @@ kumactl version
 Output
 
 ```text
-Client: Kuma Mesh 1.7.0
+Client: Kong Mesh 1.7.0
 Unable to connect to control plane: Get "http://localhost:5681/": dial tcp [::1]:5681: connect: connection refused
 ```
 
