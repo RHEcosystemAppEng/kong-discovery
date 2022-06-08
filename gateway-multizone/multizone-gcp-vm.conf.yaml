@@ -1,0 +1,3 @@
+# Environment Type, can be either "kubernetes" or "universal"
+environment: universal # ENV: KUMA_ENVIRONMENT
+mode: global # ENV: KUMA_MODE By default autoconfigured to standalone
