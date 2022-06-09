@@ -30,6 +30,16 @@
   - [Checking benigno-v1 and benigno-v2 DataPlanes](#checking-benigno-v1-and-benigno-v2-dataplanes)
   - [Controlling the Canary Release Traffic](#controlling-the-canary-release-traffic)
   - [Defining a TrafficPermission policy](#defining-a-trafficpermission-policy)
+- [Install Kong Kubernetes Ingress Controller](#install-kong-kubernetes-ingress-controller)
+  - [Install the ingress using helm](#install-the-ingress-using-helm)
+  - [Create ClusterIP services](#create-clusterip-services)
+  - [Health checks](#health-checks)
+  - [Proxy traffic to our demo app](#proxy-traffic-to-our-demo-app)
+    - [Using Plugins](#using-plugins)
+    - [RateLimiting example](#ratelimiting-example)
+    - [Advanced RateLimiting example](#advanced-ratelimiting-example)
+    - [Restore the configuration](#restore-the-configuration)
+  - [Uninstall](#uninstall)
 - [Cleanup](#cleanup)
   - [Remove VM and firewall rules](#remove-vm-and-firewall-rules)
   - [Uninstalling OpenShift clusters](#uninstalling-openshift-clusters)
@@ -396,7 +406,7 @@ oc new-project kuma-app
 oc adm policy add-scc-to-group nonroot system:serviceaccounts:kuma-app
 oc annotate namespace kuma-app kuma.io/sidecar-injection=enabled
 
-cat <<EOF | kubectl apply -f -
+cat <<EOF | oc apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -738,6 +748,217 @@ destinations:
   - match:
       kuma.io/service: '*'
 EOF
+```
+
+# Install Kong Kubernetes Ingress Controller
+
+```bash
+oc new-project kong
+oc adm policy add-scc-to-group nonroot system:serviceaccounts:kong
+oc annotate namespace kong kuma.io/sidecar-injection=enabled
+```
+
+## Install the ingress using helm
+
+```bash
+helm repo add kong https://charts.konghq.com
+helm repo update
+helm install kong kong/kong -n kong \
+  --set ingressController.installCRDs=false \
+  --set ingressController.image.tag=2.3.1 \
+  --set image.tag=2.8 \
+  --set podAnnotations."kuma\.io/mesh"=default \
+  --set podAnnotations."kuma\.io/gateway"=enabled
+```
+
+## Create ClusterIP services
+
+For Openshift we going to replace the `LoadBalancer` service with `ClusterIP` and then expose them through routes.
+
+```bash
+oc delete svc kong-kong-proxy
+oc apply -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/expose-kong-proxy.yaml
+```
+
+## Health checks
+
+This step doesn't affect the deployment, it is just to avoid the Health check errors.
+
+It seems that the current version of Lua that uses the proxy containers doesn't support HTTP/2.0 and this error keeps
+showing up in the logs
+
+```text
+127.0.0.1 - - [29/Apr/2022:08:42:59 +0000] "GET /status HTTP/2.0" 500 42 "-" "Go-http-client/2.0"
+2022/04/29 08:43:02 [error] 2073#0: *135 [lua] api_helpers.lua:526: handle_error(): /usr/local/share/lua/5.1/lapis/application.lua:424: /usr/local/share/lua/5.1/kong/api/routes/health.lua:52: http2 requests not supported yet
+stack traceback:
+       [C]: in function 'capture'
+       /usr/local/share/lua/5.1/kong/api/routes/health.lua:52: in function 'fn'
+       /usr/local/share/lua/5.1/kong/api/api_helpers.lua:293: in function 'fn'
+        /usr/local/share/lua/5.1/kong/api/api_helpers.lua:293: in function </usr/local/share/lua/5.1/kong/api/api_helpers.lua:276>
+```
+
+To avoid this error we can patch the deployment to not use HTTP/2.0
+
+```bash
+oc patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PROXY_LISTEN\", \"value\":                                   
+\"0.0.0.0:8000, 0.0.0.0:8443 ssl\" }, { \"name\" : \"KONG_ADMIN_LISTEN\", \"value\": \"127.0.0.1:8444 ssl\" }]}]}}}}"
+```
+
+## Proxy traffic to our demo app
+
+Deploy the [kuma-demo application](../kong-mesh.md#kuma-demo-application) on the `kuma-demo` namespace.
+
+Create the kuma-demo ingress. We're creating a specific route in the kong namespace for setting
+a dedicated hostname for this ingress.
+
+```bash
+OCP_DOMAIN=`oc get ingresses.config/cluster -o jsonpath={.spec.domain}`
+wget https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/kuma-demo-ingress.yaml
+sed -e "s/\${i}/1/" -e "s/\$OCP_DOMAIN/$OCP_DOMAIN/" kuma-demo-ingress.yaml | oc apply -f -
+```
+
+You can now access your application:
+
+```bash
+http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/
+```
+
+### Using Plugins
+
+There are 2 types of plugins:
+
+- KongPlugins: Can be used by resources in the same namespace
+- KongClusterPlugins: Can be used cluster wide
+
+### RateLimiting example
+
+Create a KongPlugin and update the Ingress to use it.
+
+```bash
+oc apply -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/simple-rate-limiting.yaml
+oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins=rate-free-tier
+```
+
+After that, you can see in the HTTP headers the rate limiting information:
+
+```bash
+$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`
+HTTP/1.1 200 OK
+...
+ratelimit-limit: 10
+ratelimit-remaining: 9
+ratelimit-reset: 54
+x-ratelimit-limit-minute: 10
+x-ratelimit-remaining-minute: 9
+```
+
+### Advanced RateLimiting example
+
+It is also possible to limit rating based on the authenticated user. For that we can create a secret with the apiKey
+of a consumer, the KongConsumer that will be matched to this apiKey thanks to the auth-plugin.
+
+Then the rate limiting plugin will be defined by consumer. Allowing only authenticated users.
+
+First, create a configmap with the credentials
+
+```bash
+oc create secret generic user1-apikey -n kuma-demo --from-literal=kongCredType=key-auth --from-literal=key=demo
+```
+
+Then apply the complex-rate-limiting file that creates all the necessary resources and updates the ingress
+
+```bash
+oc apply -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/complex-rate-limiting.yaml
+oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins=user1-auth,rate-paid-tier
+```
+
+Let's try the auth plugin and the rate limiting without providing the apiKey
+
+```bash
+$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/
+HTTP/1.1 401 Unauthorized
+content-length: 45
+content-type: application/json; charset=utf-8
+date: Fri, 29 Apr 2022 12:05:30 GMT
+server: kong/2.8.1.0-enterprise-edition
+set-cookie: 157c7d417676c54695fa6cf886b2feeb=6b42459352c6c11b78a624dfb4af1f0b; path=/; HttpOnly
+www-authenticate: Key realm="kong"
+x-kong-response-latency: 0
+
+{
+    "message": "No API key found in request"
+}
+```
+
+Now let's provide an invalid apiKey
+
+```bash
+$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/ apiKey:invalid
+HTTP/1.1 401 Unauthorized
+content-length: 52
+content-type: application/json; charset=utf-8
+date: Fri, 29 Apr 2022 12:06:31 GMT
+server: kong/2.8.1.0-enterprise-edition
+set-cookie: 157c7d417676c54695fa6cf886b2feeb=6b42459352c6c11b78a624dfb4af1f0b; path=/; HttpOnly
+x-kong-response-latency: 0
+
+{
+    "message": "Invalid authentication credentials"
+}
+```
+
+Finally, let's make Kong happy by providing the right apiKey
+
+```bash
+$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/ apiKey:demo
+HTTP/1.1 200 OK
+ratelimit-limit: 100
+ratelimit-remaining: 99
+ratelimit-reset: 56
+x-ratelimit-limit-minute: 100
+x-ratelimit-remaining-minute: 99
+```
+
+### Restore the configuration
+
+Remove all the resources we used:
+
+```bash
+oc delete secret user1-apikey -n kuma-demo
+oc delete -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/complex-rate-limiting.yaml
+oc delete -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/simple-rate-limiting.yaml
+```
+
+Restore the original ingress annotations
+
+```bash
+oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins-
+```
+
+## Uninstall
+
+Uninstall kong using chart
+
+```bash
+helm uninstall kong
+```
+
+Remove the helm chart
+
+```bash
+helm repo remove helm
+```
+
+Delete the `kong` namespace
+
+```bash
+oc delete project kong
+```
+
+Remove the permissions
+
+```bash
+oc adm policy remove-scc-from-group nonroot system:serviceaccounts:kong
 ```
 
 # Cleanup
