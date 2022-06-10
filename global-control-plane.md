@@ -80,13 +80,13 @@ export CLUSTER_TELEMETRY_URL=$(oc get svc kong-kong-clustertelemetry -ojson | jq
 - check the management UI is working at:
 
 ```bash
-oc get route kong-kong-manager --template='{{.spec.host}}'
+oc get route -n kong kong-kong-manager --template='{{.spec.host}}'
 ```
 
 - check the admin endpoint is available
 
 ```bash
-http `oc get route kong-kong-admin --template='{{.spec.host}}'` | jq .version
+http `oc get route -n kong kong-kong-admin --template='{{.spec.host}}'` | jq .version
 "2.8.1.1-enterprise-edition"
 ```
 
@@ -111,13 +111,13 @@ kubectl apply -f mesh/mtls.yaml -n kong-mesh-system
 Expose the svc
 
 ```bash
-oc create route passthrough kong-mesh-control-plane --service=kong-mesh-control-plane --port=https-api-server 
+oc create route passthrough -n kong-mesh-system kong-mesh-control-plane --service=kong-mesh-control-plane --port=https-api-server 
 ```
 
 Check it is working
 
 ```bash
-$ http --verify=false https://`oc get route kong-mesh-control-plane -n kong-mesh-system -ojson | jq -r .spec.host`/config | jq .mode
+$ https --verify=false `oc get route kong-mesh-control-plane -n kong-mesh-system -ojson | jq -r .spec.host`/config | jq .mode
 "global"
 ```
 
