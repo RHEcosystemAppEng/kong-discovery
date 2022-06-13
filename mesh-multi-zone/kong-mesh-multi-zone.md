@@ -34,14 +34,16 @@
   - [Install the ingress using helm](#install-the-ingress-using-helm)
   - [Create ClusterIP services](#create-clusterip-services)
   - [Health checks](#health-checks)
-  - [Proxy traffic to our demo app](#proxy-traffic-to-our-demo-app)
-    - [Using Plugins](#using-plugins)
-    - [RateLimiting example](#ratelimiting-example)
-    - [Advanced RateLimiting example](#advanced-ratelimiting-example)
-    - [Restore the configuration](#restore-the-configuration)
-  - [Uninstall](#uninstall)
-- [Cleanup](#cleanup)
-  - [Remove VM and firewall rules](#remove-vm-and-firewall-rules)
+  - [Proxy traffic to Magnanimo app](#proxy-traffic-to-magnanimo-app)
+- [Cleanup Kong Kubernetes Ingress Controller](#cleanup-kong-kubernetes-ingress-controller)
+  - [Remove route and ingress](#remove-route-and-ingress)
+  - [Uninstall Helm chart](#uninstall-helm-chart)
+- [Cleanup demo application](#cleanup-demo-application)
+- [Cleanup Global Control Plane and DataPlane proxies](#cleanup-global-control-plane-and-dataplane-proxies)
+  - [Zone control plane](#zone-control-plane)
+  - [Global Control Plane](#global-control-plane)
+- [Full cleanup](#full-cleanup)
+  - [Remove Global Control Plane VM and firewall rules](#remove-global-control-plane-vm-and-firewall-rules)
   - [Uninstalling OpenShift clusters](#uninstalling-openshift-clusters)
 
 # Executive Summary
@@ -773,7 +775,7 @@ helm install kong kong/kong -n kong \
 
 ## Create ClusterIP services
 
-For Openshift we going to replace the `LoadBalancer` service with `ClusterIP` and then expose them through routes.
+For Openshift we are going to replace the `LoadBalancer` service with `ClusterIP` and then expose them through routes.
 
 ```bash
 oc delete svc kong-kong-proxy
@@ -782,39 +784,55 @@ oc apply -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/m
 
 ## Health checks
 
-This step doesn't affect the deployment, it is just to avoid the Health check errors.
-
-It seems that the current version of Lua that uses the proxy containers doesn't support HTTP/2.0 and this error keeps
-showing up in the logs
-
-```text
-127.0.0.1 - - [29/Apr/2022:08:42:59 +0000] "GET /status HTTP/2.0" 500 42 "-" "Go-http-client/2.0"
-2022/04/29 08:43:02 [error] 2073#0: *135 [lua] api_helpers.lua:526: handle_error(): /usr/local/share/lua/5.1/lapis/application.lua:424: /usr/local/share/lua/5.1/kong/api/routes/health.lua:52: http2 requests not supported yet
-stack traceback:
-       [C]: in function 'capture'
-       /usr/local/share/lua/5.1/kong/api/routes/health.lua:52: in function 'fn'
-       /usr/local/share/lua/5.1/kong/api/api_helpers.lua:293: in function 'fn'
-        /usr/local/share/lua/5.1/kong/api/api_helpers.lua:293: in function </usr/local/share/lua/5.1/kong/api/api_helpers.lua:276>
-```
-
-To avoid this error we can patch the deployment to not use HTTP/2.0
+Disable HTTP/2.0 supporting for Lua (not implemented yet)
 
 ```bash
-oc patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PROXY_LISTEN\", \"value\":                                   
+oc patch deployment -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_PROXY_LISTEN\", \"value\":
 \"0.0.0.0:8000, 0.0.0.0:8443 ssl\" }, { \"name\" : \"KONG_ADMIN_LISTEN\", \"value\": \"127.0.0.1:8444 ssl\" }]}]}}}}"
 ```
 
-## Proxy traffic to our demo app
+## Proxy traffic to Magnanimo app
 
-Deploy the [kuma-demo application](../kong-mesh.md#kuma-demo-application) on the `kuma-demo` namespace.
-
-Create the kuma-demo ingress. We're creating a specific route in the kong namespace for setting
+Create the `demo-app-ingress` ingress. We're creating a specific route in the kong namespace for setting
 a dedicated hostname for this ingress.
 
 ```bash
 OCP_DOMAIN=`oc get ingresses.config/cluster -o jsonpath={.spec.domain}`
-wget https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/kuma-demo-ingress.yaml
-sed -e "s/\${i}/1/" -e "s/\$OCP_DOMAIN/$OCP_DOMAIN/" kuma-demo-ingress.yaml | oc apply -f -
+
+cat <<EOF | oc apply -f -
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: demo-app
+  namespace: kong
+spec:
+  port:
+    targetPort: proxy
+  to:
+    kind: Service
+    name: kong-kong-proxy
+---    
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: demo-app-ingress
+  namespace: kuma-app
+  annotations:
+    konghq.com/strip-path: "true"
+spec:
+  ingressClassName: kong
+  rules:
+  - host: demo-app-kong.$OCP_DOMAIN
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: magnanimo
+            port:
+              number: 4000
+EOF
 ```
 
 You can now access your application:
@@ -823,119 +841,16 @@ You can now access your application:
 http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/
 ```
 
-### Using Plugins
+# Cleanup Kong Kubernetes Ingress Controller
 
-There are 2 types of plugins:
-
-- KongPlugins: Can be used by resources in the same namespace
-- KongClusterPlugins: Can be used cluster wide
-
-### RateLimiting example
-
-Create a KongPlugin and update the Ingress to use it.
+## Remove route and ingress
 
 ```bash
-oc apply -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/simple-rate-limiting.yaml
-oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins=rate-free-tier
+oc delete route demo-app -n kong
+oc delete ingress demo-app-ingress -n kuma-app
 ```
 
-After that, you can see in the HTTP headers the rate limiting information:
-
-```bash
-$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`
-HTTP/1.1 200 OK
-...
-ratelimit-limit: 10
-ratelimit-remaining: 9
-ratelimit-reset: 54
-x-ratelimit-limit-minute: 10
-x-ratelimit-remaining-minute: 9
-```
-
-### Advanced RateLimiting example
-
-It is also possible to limit rating based on the authenticated user. For that we can create a secret with the apiKey
-of a consumer, the KongConsumer that will be matched to this apiKey thanks to the auth-plugin.
-
-Then the rate limiting plugin will be defined by consumer. Allowing only authenticated users.
-
-First, create a configmap with the credentials
-
-```bash
-oc create secret generic user1-apikey -n kuma-demo --from-literal=kongCredType=key-auth --from-literal=key=demo
-```
-
-Then apply the complex-rate-limiting file that creates all the necessary resources and updates the ingress
-
-```bash
-oc apply -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/complex-rate-limiting.yaml
-oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins=user1-auth,rate-paid-tier
-```
-
-Let's try the auth plugin and the rate limiting without providing the apiKey
-
-```bash
-$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/
-HTTP/1.1 401 Unauthorized
-content-length: 45
-content-type: application/json; charset=utf-8
-date: Fri, 29 Apr 2022 12:05:30 GMT
-server: kong/2.8.1.0-enterprise-edition
-set-cookie: 157c7d417676c54695fa6cf886b2feeb=6b42459352c6c11b78a624dfb4af1f0b; path=/; HttpOnly
-www-authenticate: Key realm="kong"
-x-kong-response-latency: 0
-
-{
-    "message": "No API key found in request"
-}
-```
-
-Now let's provide an invalid apiKey
-
-```bash
-$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/ apiKey:invalid
-HTTP/1.1 401 Unauthorized
-content-length: 52
-content-type: application/json; charset=utf-8
-date: Fri, 29 Apr 2022 12:06:31 GMT
-server: kong/2.8.1.0-enterprise-edition
-set-cookie: 157c7d417676c54695fa6cf886b2feeb=6b42459352c6c11b78a624dfb4af1f0b; path=/; HttpOnly
-x-kong-response-latency: 0
-
-{
-    "message": "Invalid authentication credentials"
-}
-```
-
-Finally, let's make Kong happy by providing the right apiKey
-
-```bash
-$ http `oc get route demo-app -n kong --template='{{ .spec.host }}'`/ apiKey:demo
-HTTP/1.1 200 OK
-ratelimit-limit: 100
-ratelimit-remaining: 99
-ratelimit-reset: 56
-x-ratelimit-limit-minute: 100
-x-ratelimit-remaining-minute: 99
-```
-
-### Restore the configuration
-
-Remove all the resources we used:
-
-```bash
-oc delete secret user1-apikey -n kuma-demo
-oc delete -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/complex-rate-limiting.yaml
-oc delete -f https://raw.githubusercontent.com/RHEcosystemAppEng/kong-discovery/main/kic/simple-rate-limiting.yaml
-```
-
-Restore the original ingress annotations
-
-```bash
-oc annotate ingress demo-app-ingress --overwrite -n kuma-demo konghq.com/plugins-
-```
-
-## Uninstall
+## Uninstall Helm chart
 
 Uninstall kong using chart
 
@@ -961,9 +876,68 @@ Remove the permissions
 oc adm policy remove-scc-from-group nonroot system:serviceaccounts:kong
 ```
 
-# Cleanup
+# Cleanup demo application
 
-## Remove VM and firewall rules
+Run following command on all OpenShift DataPlane clusters
+
+```bash
+oc delete project kuma-app
+```
+
+# Cleanup Global Control Plane and DataPlane proxies
+
+If you don't need to preserve current Mesh installation you can [delete all](#full-cleanup) OpenShift clusters and Global Control Plane VM.
+
+If you want to continue using clusters but with a clean installation, please follow further instructions.
+
+## Zone control plane
+
+To delete a Zone we must first shut down the corresponding Kuma zone control plane instances.
+
+Run following command on all OpenShift clusters
+
+```bash
+kumactl install control-plane | oc delete -f -
+```
+
+Next we need to delete zones from `Global Control Plane` VM.
+Connect to Global Control Plane VM via ssh and run
+
+```bash
+kumactl delete zone kuma-dp-1
+kumactl delete zone kuma-dp-2
+kumactl delete zone kuma-dp-3
+```
+
+## Global Control Plane
+
+Connect to Global Control Plane VM via ssh and run
+
+Remove `systemd` service
+
+```bash
+sudo systemctl stop kuma-global-cp.service
+sudo systemctl disable kuma-global-cp.service
+sudo rm /etc/systemd/system/kuma-global-cp.service
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+```
+
+Remove Kong working dir
+
+```bash
+sudo rm -rf /opt/kong/kong-mesh-1.7.0/ 
+```
+
+Remove Kong user
+
+```bash
+sudo userdel kuma --remove
+```
+
+# Full cleanup
+
+## Remove Global Control Plane VM and firewall rules
 
 ```bash
 gcloud compute firewall-rules delete kuma-cp-ds-$GCP_VM_NAME --project=$GCP_PROJECT_NAME --quiet
