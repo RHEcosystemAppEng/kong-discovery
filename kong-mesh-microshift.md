@@ -680,8 +680,7 @@ Since this is just a container, we will just delete the container, restore /etc/
   Restore /etc/hosts:
 
   ```bash
-  sudo sh -c "sed -s '/^${IP}/d' /etc/hosts" > temp_hosts
-  sudo mv temp_hosts /etc/hosts
+  sudo sh -c "sed -i '/^${IP}/d' /etc/hosts"
   ```
 
   Remove Containers, Images and Volumes for MicroShift:
