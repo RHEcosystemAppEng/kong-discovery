@@ -64,7 +64,7 @@ The [installation process](https://microshift.io/docs/getting-started/#using-mic
 Set the active `kubeconfig` to the local kubeconfig
 ```
 export KUBECONFIG=./kubeconfig
-sudo chmod 777 kubeconfig
+sudo chown $(id -u):$(id -g) kubeconfig
 ```
 
 
