@@ -32,7 +32,7 @@ oc create secret generic kong-enterprise-license --from-file=license=./license.j
 - create cert + secret
 
 ```bash
-openssl req -new -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \                                                                                  
+openssl req -new -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
   -keyout ./cluster.key -out ./cluster.crt \
   -days 1095 -subj "/CN=kong_clustering"
 oc create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster.key -n kong
@@ -136,10 +136,18 @@ Login to the `kong-dp1` cluster
 kumactl install control-plane --cni-enabled --mode=zone --zone=kumadp1 --ingress-enabled --kds-global-address grpcs://${GLOBAL_SYNC} | oc apply -f -
 ```
 
+Wait until pods are ready
+
+```bash
+$ oc wait --for=condition=ready pod -l app.kubernetes.io/name=kong-mesh -n kong-mesh-system --timeout=180s                                            
+pod/kong-mesh-control-plane-7d478b859-pkmrr condition met
+pod/kong-mesh-ingress-75559d7644-qtbwp condition met
+```
+
 Check the zone is discovered in the global. Connect to the global control plane cluster to get the route
 
 ```bash
-$ http `oc get route kong-mesh-control-plane -n kong-mesh-system -ojson | jq -r .spec.host`/status/zones                            
+http `oc get route kong-mesh-control-plane -n kong-mesh-system -ojson | jq -r .spec.host`/status/zones
 HTTP/1.1 200 OK
 cache-control: private
 content-length: 48
@@ -175,7 +183,7 @@ oc create secret generic kong-enterprise-license --from-file=license=./license.j
 oc create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster.key -n kong-dp
 ```
 
-- add the serviceaccount to the anyuid scc so the sidecars can be created and annotate the namespace. 
+- add the serviceaccount to the anyuid scc so the sidecars can be created and annotate the namespace.
 That will allow the pod to be created together with the sidecar
 
 ```bash
@@ -187,6 +195,13 @@ kubectl label namespace kong-dp kuma.io/sidecar-injection=enabled
 
 ```bash
 sed -e 's/\$CLUSTER_URL/'"$CLUSTER_URL"'/' -e 's/\$CLUSTER_TELEMETRY_URL/'"$CLUSTER_TELEMETRY_URL"'/' gateway-multizone/dp-values.yaml | helm install kong -n kong-dp kong/kong -f -
+```
+
+- wait until pods are ready
+
+```bash
+oc wait --for=condition=ready pod -l app.kubernetes.io/name=kong -n kong-dp --timeout=180s              
+pod/kong-kong-69f75fd99c-hgd9m condition met
 ```
 
 - expose proxy routes (http/https)
@@ -218,10 +233,37 @@ http `oc get route -n kong-dp kong-kong-proxy --template='{{ .spec.host }}'`/
 oc create ns kuma-app
 oc annotate namespace kuma-app kuma.io/sidecar-injection=enabled
 oc adm policy add-scc-to-group nonroot system:serviceaccounts:kuma-app
-oc apply -f gateway-multizone/magnanimo.yaml
+oc apply -f gateway-multizone/magnanimo.yaml -n kuma-app
+```
+
+Wait until the application is ready
+
+```bash
+oc wait --for=condition=ready pod -l app=magnanimo -n kuma-app --timeout=180s                                                  
+pod/magnanimo-86c978654b-pcxw7 condition met
+```
+
+### Deploy Benigno on DP1
+
+```bash
+oc apply -f gateway-multizone/benigno.yaml -n kuma-app
+```
+
+Wait until the application is ready
+
+```bash
+oc wait --for=condition=ready pod -l app=benigno -n kuma-app --timeout=180s                                                  
+pod/benigno-v1-5b5cdc5b5b-hpn28 condition met
 ```
 
 Check the Mesh control plane the the service is discovered, it can be done from the UI
+or using the `/meshes/default/service-insights` endpoint.
+
+```
+"benigno_kuma-app_svc_5000"
+"kong-kong-proxy_kong-dp_svc_80"
+"magnanimo_kuma-app_svc_4000"
+```
 
 ### Create the service and route
 
@@ -237,7 +279,90 @@ http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/servic
 Now using the `kong-dp1` Proxy route we should be able to query the service
 
 ```bash
-http `oc get route -n kong-dp kong-kong-proxy --template='{{ .spec.host }}'`/magnanimo
+$ https --verify=false `oc get route -n kong-dp kong-kong-proxy-tls --template='{{.spec.host}}'`/magnanimo/hello
+HTTP/1.1 200 OK
+Connection: keep-alive
+Content-Length: 22
+Content-Type: text/html; charset=utf-8
+Date: Fri, 17 Jun 2022 14:24:35 GMT
+Server: Werkzeug/1.0.1 Python/3.8.3
+Via: kong/2.8.1.1-enterprise-edition
+X-Kong-Proxy-Latency: 12
+X-Kong-Upstream-Latency: 2
+
+Hello World, Magnanimo: 2022-06-17 14:25:43.599616
+```
+
+```bash
+$ https --verify=false `oc get route -n kong-dp kong-kong-proxy-tls --template='{{.spec.host}}'`/magnanimo/hw3
+HTTP/1.1 200 OK
+Connection: keep-alive
+Content-Length: 49
+Content-Type: text/html; charset=utf-8
+Date: Fri, 17 Jun 2022 14:25:03 GMT
+Server: Werkzeug/1.0.1 Python/3.8.3
+Via: kong/2.8.1.1-enterprise-edition
+X-Kong-Proxy-Latency: 2
+X-Kong-Upstream-Latency: 16
+
+Hello World, Benigno - 2022-06-17 14:25:03.859064
+```
+
+## Set specific traffic permissions
+
+Delete the `allow-all-default` permission
+
+```bash
+kumactl delete traffic-permissions allow-all-default
+```
+
+Create a specific traffic-permission for the gateway
+
+```bash
+cat << EOF | kumactl apply -f -
+type: TrafficPermission
+name: gateway-all-traffic
+mesh: default
+sources:
+  - match:
+      kuma.io/service: 'kong-kong-proxy_kong-dp_svc_80'
+destinations:
+  - match:
+      kuma.io/service: '*'
+EOF
+```
+
+Now let's allow traffic between `magnanimo` and `benigno`
+
+```bash
+cat << EOF | kumactl apply -f -
+type: TrafficPermission
+name: magnanimo-to-benigno
+mesh: default
+sources:
+  - match:
+      kuma.io/service: 'magnanimo_kuma-app_svc_4000'
+destinations:
+  - match:
+      kuma.io/service: 'benigno_kuma-app_svc_5000'
+EOF
+```
+
+Confirm the application works again
+
+```bash
+https --verify=false `oc get route -n kong-dp kong-kong-proxy-tls --template='{{.spec.host}}'`/magnanimo/hw3
+HTTP/1.1 200 OK
+Connection: keep-alive
+Content-Length: 49
+Content-Type: text/html; charset=utf-8
+Date: Fri, 17 Jun 2022 15:18:10 GMT
+Server: Werkzeug/1.0.1 Python/3.8.3
+Via: kong/2.8.1.1-enterprise-edition
+X-Kong-Proxy-Latency: 11
+X-Kong-Upstream-Latency: 19
+
+Hello World, Benigno - 2022-06-17 15:18:10.933966
 ```
 
 ## Clean up
@@ -248,6 +373,7 @@ http `oc get route -n kong-dp kong-kong-proxy --template='{{ .spec.host }}'`/mag
 oc annotate namespace kuma-app kuma.io/sidecar-injection-
 oc adm policy remove-scc-from-group anyuid system:serviceaccounts:kuma-app
 oc delete -f gateway-multizone/magnanimo.yaml
+oc delete -f gateway-multizone/benigno.yaml
 oc delete ns kuma-app
 ```
 

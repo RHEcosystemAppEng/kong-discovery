@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: benigno-v1
+  namespace: kuma-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: benigno
+  template:
+    metadata:
+      labels:
+        app: benigno
+        version: v1
+    spec:
+      containers:
+      - name: benigno
+        image: claudioacquaviva/benigno
+        ports:
+        - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: benigno
+  namespace: kuma-app
+  labels:
+    app: benigno
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5000
+      name: http
+  selector:
+    app: benigno

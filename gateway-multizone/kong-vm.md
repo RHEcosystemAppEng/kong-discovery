@@ -9,7 +9,7 @@
   - 5682: HTTPS rest API and GUI 
   - 5685: gRPC for remote CP to connect to the Global CP
 
-- download the Kuma Mesh CLI
+- download the Kuma Mesh CLI (this might change the home folder permissions, confirm it is 700)
 
 curl -L https://docs.konghq.com/mesh/installer.sh | sh -
 
@@ -43,10 +43,10 @@ EOF
 
 - verify the installation
 
-https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:5682/config | jq .mode
+https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:5682/config | jq .mode
 "global"
 
-https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:5682/meshes/ | jq .
+https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:5682/meshes/ | jq .
 {
   "total": 1,
   "items": [
@@ -73,7 +73,7 @@ https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:5682/mes
 
 - validate the zone is added
 
-https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:5682/zones | jq .
+https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:5682/zones | jq .
 {
   "total": 1,
   "items": [
@@ -92,7 +92,7 @@ https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:5682/zon
 
 - confirm the service is part of the mesh
 
-https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:5682/meshes/default/service-insights
+https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:5682/meshes/default/service-insights
 HTTP/1.1 200 OK
 Content-Length: 380
 Content-Type: application/json
@@ -119,6 +119,15 @@ Date: Tue, 07 Jun 2022 15:17:00 GMT
     "next": null,
     "total": 1
 }
+
+### Export the GLOBAL_SYNC var
+
+The remote control planes need to know where the Global control plane is for that create the following environment variable
+to be used during the remote control planes installation:
+
+```bash
+export GLOBAL_SYNC=ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:5685
+```
 
 ## Install Kong Gateway
 
@@ -148,16 +157,24 @@ sudo docker run -d --rm -e POSTGRES_DB=kong -e POSTGRES_USER=kong -e POSTGRES_PA
 
 ```
 
-- Bootstrap kong database
+- Generate certificate
 
 ```bash
-kong migrations bootstrap -c kong.conf 
+openssl req -new -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
+  -keyout ./cluster.key -out ./cluster.crt \
+  -days 1095 -subj "/CN=kong_clustering"
 ```
 
 - Copy config file to the VM (kong.conf) to the root folder
 
 ```bash
-scp gateway-multizone/kong.conf ec2-user@<my-ec2vm.public.hostname>:~
+scp gateway-multizone/kong.conf ec2-user@ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:~
+```
+
+- Bootstrap kong database
+
+```bash
+kong migrations bootstrap -c kong.conf 
 ```
 
 - Start kong Gateway
@@ -169,24 +186,24 @@ kong start -c kong.conf
 - Add license
 
 ```bash
-$ https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:8444/licenses payload=@license.json
+$ https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:8444/licenses payload=@license.json
 HTTP/1.1 201 Created
 ...
 ```
 
 - Check the API and Manager work
 
-Open the Manager at https://ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:8445/overview
+Open the Manager at https://ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:8445/overview
 
 ```bash
-https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:8444 | jq .version
+https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:8444 | jq .version
 "2.8.1.1-enterprise-edition"
 ```
 
 - Export the CLUSTER_URL and CLUSTER_TELEMETRY_URL to be used in the Data Plane installation
 
 ```bash
-export CLUSTER_URL=ec2-35-180-211-252.eu-west-3.compute.amazonaws.com
+export CLUSTER_URL=ec2-13-38-19-167.eu-west-3.compute.amazonaws.com
 export CLUSTER_TELEMETRY_URL=$CLUSTER_URL
 ```
 
@@ -197,7 +214,7 @@ export CLUSTER_TELEMETRY_URL=$CLUSTER_URL
 The Gateway should show the Data plane is part of the cluster
 
 ```bash
-$ https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:8444/clustering/status                                                                    
+$ https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:8444/clustering/status                                                                    
 HTTP/1.1 200 OK
 Access-Control-Allow-Origin: *
 Connection: keep-alive
@@ -221,10 +238,27 @@ X-Kong-Admin-Request-ID: OfB5KNb6HFY3NVgyzlvcntaVFaVS6b8a
 
 ### Verify the mesh
 
+The `kumadp1` zone should exist in the global control plane
+
+```bash
+https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:5682/status/zones
+HTTP/1.1 200 OK
+Content-Length: 48
+Content-Type: application/json
+Date: Fri, 17 Jun 2022 12:20:41 GMT
+
+[
+    {
+        "active": true,
+        "name": "kumadp1"
+    }
+]
+```
+
 In the mesh you should also see the kong gateway as a service
 
 ```bash
-$ https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:5682/meshes/default/service-insights | jq '.items[].name'
+$ https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:5682/meshes/default/service-insights | jq '.items[].name'
 "kong-kong-proxy_kong-dp_svc_80"
 "magnanimo_kuma-app_svc_4000"
 ```
@@ -234,14 +268,14 @@ $ https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:5682/m
 - Create the service to access the `magnanimo` service
 
 ```bash
-https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:8444/services name=magnanimoservice url='http://magnanimo.kuma-app.svc.cluster.local:4000'
-https --verify=false ec2-35-180-211-252.eu-west-3.compute.amazonaws.com:8444/services/magnanimoservice/routes name='magnanimoroute' paths:='["/magnanimo"]' 
+https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:8444/services name=magnanimoservice url='http://magnanimo.kuma-app.svc.cluster.local:4000'
+https --verify=false ec2-13-38-19-167.eu-west-3.compute.amazonaws.com:8444/services/magnanimoservice/routes name='magnanimoroute' paths:='["/magnanimo"]' 
 ```
 
 - Try the service
 
 ```bash
-https --verify=false kong-kong-proxy-tls-kong-dp.apps.kong-ocp.o1wf.p1.openshiftapps.com/magnanimo                                                       
+https --verify=false `oc get route -n kong-dp kong-kong-proxy-tls --template='{{.spec.host}}'`/magnanimo                                                       
 HTTP/1.1 200 OK
 Connection: keep-alive
 Content-Length: 22
