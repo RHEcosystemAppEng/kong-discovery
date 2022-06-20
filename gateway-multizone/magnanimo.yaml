@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magnanimo
+  namespace: kuma-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: magnanimo
+  template:
+    metadata:
+      labels:
+        app: magnanimo
+    spec:
+      containers:
+      - name: magnanimo
+        image: claudioacquaviva/magnanimo_kuma
+        ports:
+        - containerPort: 4000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: magnanimo
+  namespace: kuma-app
+  annotations:
+    ingress.kubernetes.io/service-upstream: "true"
+  labels:
+    app: magnanimo
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4000
+      name: http
+  selector:
+    app: magnanimo
