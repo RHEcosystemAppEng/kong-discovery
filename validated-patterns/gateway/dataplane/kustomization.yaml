@@ -18,7 +18,7 @@ patches:
     apiVersion: argoproj.io/v1alpha1
     kind: Application
     metadata:
-      name: kong-cp
+      name: kong-dp
     spec:
       source:
         helm:
