@@ -1,4 +1,4 @@
-namespace: kong
+namespace: openshift-gitops
 
 resources:
 - ../base
@@ -22,4 +22,4 @@ patches:
     spec:
       source:
         helm:
-          valuesFiles: ["values-cp.yaml"]
+          valueFiles: ["values-cp.yaml"]

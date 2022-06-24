@@ -14,4 +14,4 @@ spec:
     targetRevision: 2.9.1
     helm:
       releaseName: kong
-      valuesFiles: ["values.yaml"]
+      valueFiles: ["values.yaml"]
