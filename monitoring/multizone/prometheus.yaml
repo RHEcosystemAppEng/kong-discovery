@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  labels:
+    prometheus: kong-metrics
+  name: kong
+  namespace: kong-mesh-system
+spec:
+  replicas: 1
+  serviceMonitorSelector:
+    matchLabels:
+      app.kubernetes.io/name: kong-metrics
+  serviceAccountName: prometheus
+  thanos:
+    version: v0.25.1
