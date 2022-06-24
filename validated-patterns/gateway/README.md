@@ -95,7 +95,7 @@ oc get ns | grep kong
 output
 
 ```bash
-kong Active   31s
+kong Active   3s
 ```
 
 Validate that the `kong-cluster-cert` was created
