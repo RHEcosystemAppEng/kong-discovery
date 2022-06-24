@@ -214,6 +214,6 @@ export CSV=$(oc get subs -n openshift-operators openshift-gitops-operator -oyaml
 # Delete Subscription
 oc delete subs openshift-gitops-operator -n openshift-operators 
 
-# Delete CSV
-oc delete csv $CSV -n openshift-operators
+# Delete CSV, make sure there are not more CSVs in there
+oc delete csv -n openshift-operators --all
 ```
