@@ -57,12 +57,6 @@ keep the UI open for the rest of this doc.
 
 Think of this like a multi-stage deployment, we will first deploy the the prerequisite manifests like the namespace, web console customizations and the secret.
 
-Create the license secret in kong namespace ( **for now**, next we will use Vault )
-
-```bash
-oc create secret generic kong-enterprise-license -n kong --from-file=license=license.json
-```
-
 The `validated-patterns/gateway/prereqs` contains the prereq manifests that we need to deploy before deploying the Kong Gateway Control Plane.
 
 ```yaml
@@ -104,6 +98,21 @@ output
 kong Active   31s
 ```
 
+Validate that the `kong-cluster-cert` was created
+
+```bash
+oc get secret -n kong kong-cluster-cert
+```
+
+output
+
+```bash
+NAME                TYPE                DATA   AGE
+kong-cluster-cert   kubernetes.io/tls   2      55s
+```
+
+
+
 Check the Argo UI to ensure `prereqs` is reporting healthy and synced.
 
 Do a secondary check the argo application through the terminal to become more familiar
@@ -121,6 +130,12 @@ prereqs           Synced        Healthy
 
 Synced in this case means that the repo manifests match what is deployed in the cluster.
 
+Create the license secret in kong namespace ( **for now**, we will use Vault in future )
+
+```bash
+oc create secret generic kong-enterprise-license -n kong --from-file=license=license.json
+```
+
 
 In this section, we deployed:
 - Customized Argo Instance with Plugins
@@ -133,10 +148,10 @@ In this section, we deployed:
 
 In this section we deploy the ControlPlane
 
-Render the Control Plane:
+Deploy the Control Plane:
 
 ```bash
-kustomize build validated-patterns/gateway/controlplane | kubectl apply -f - 
+kustomize build validated-patterns/gateway/controlplane | oc apply -f - 
 ```
 
 Wait for the Kong Control Plane to come up:
@@ -144,7 +159,7 @@ Wait for the Kong Control Plane to come up:
 oc wait --for=condition=ready pod -l app.kubernetes.io/component=app,app.kubernetes.io/instance=kong -n kong --timeout=180s
 ```
 
-You should see kong deployed in the control plane
+You should see kong deployed in the control plane, also the pod created from the `cert-secret` job
 ```bash
 oc get po -n kong
 ```
@@ -152,15 +167,11 @@ oc get po -n kong
 output
 
 ```bash
-oc get po -n kong 
-```
-
-output
-
-```
 NAME                       READY   STATUS      RESTARTS   AGE
-kong-kong-f6879f58-tbzn2   1/1     Running     0          25s
+cert-secret-9qbm9          0/1     Completed   0          2m28s
+kong-kong-f6879f58-gxhjf   1/1     Running     0          25s
 ```
+
 Check the `Application` to see the state of `kong-cp`
 
 ```bash
@@ -182,6 +193,18 @@ Delete the Argo Application
 
 ```bash
 oc delete application -n openshift-gitops --all 
+```
+
+Clean up Kong
+
+```bash
+oc delete deploy,secret,cm,sa,job,po --all -n kong --force
+```
+
+Clean up Kong NS
+
+```bash
+oc delete ns kong
 ```
 
 ```bash
