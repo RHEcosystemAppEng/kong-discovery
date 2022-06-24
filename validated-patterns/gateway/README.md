@@ -4,6 +4,7 @@
 - [Install Operator](#install-operator)
 - [Deploy Prereqs](#deploy-prereqs)
 - [Deploy ControlPlane](#deploy-controlplane)
+- [Uninstall](#uninstall)
 
 ## Install Operator
 
@@ -54,9 +55,13 @@ keep the UI open for the rest of this doc.
 
 ## Deploy Prereqs
 
-Think of this like a multi-stage deployment, we will first deploy the the prerequisite manifests like the namespace, web console customizations and the secret. We could have Argo create the namespace for us, but we need to break this into two steps to get the license secret into the namespace before we deploy the controlplane.
+Think of this like a multi-stage deployment, we will first deploy the the prerequisite manifests like the namespace, web console customizations and the secret.
 
-Typically we would use sealed-secrets or vault for secret management, in this case, we are not using a secret management tool so we will manually create the secrets instead of insecurely pushing to Git.
+Create the license secret in kong namespace ( **for now**, next we will use Vault )
+
+```bash
+oc create secret generic kong-enterprise-license -n kong --from-file=license=license.json
+```
 
 The `validated-patterns/gateway/prereqs` contains the prereq manifests that we need to deploy before deploying the Kong Gateway Control Plane.
 
@@ -65,6 +70,8 @@ oc apply -f -<<EOF
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
+  annotations:
+    argocd.argoproj.io/sync-wave: "0" # for the next steps
   name: prereqs
   namespace: openshift-gitops
 spec:
@@ -94,7 +101,7 @@ oc get ns | grep kong
 output
 
 ```bash
-kong                                               Active   31s
+kong Active   31s
 ```
 
 Check the Argo UI to ensure `prereqs` is reporting healthy and synced.
@@ -116,24 +123,74 @@ Synced in this case means that the repo manifests match what is deployed in the 
 
 
 In this section, we deployed:
+- Customized Argo Instance with Plugins
 - kong namespace
 - custom consolelink for kong docs
-- the kong license secret
+- the kong license secret, kong tls cluster-cert secret
 - rbac clusterrole/clusterrolebinding for openshift-gitops-argocd-application-controller
 
+## Deploy ControlPlane
+
+In this section we deploy the ControlPlane
 
 Render the Control Plane:
 
 ```bash
-k kustomize controlpane --enable-helm
-
-# or 
-
-kustomize build /Users/cmwylie19/kong-discovery/validated-patterns/gateway/controlplane 
+kustomize build validated-patterns/gateway/controlplane | kubectl apply -f - 
 ```
 
-Render the Data Plane:
+Wait for the Kong Control Plane to come up:
+```bash
+oc wait --for=condition=ready pod -l app.kubernetes.io/component=app,app.kubernetes.io/instance=kong -n kong --timeout=180s
+```
+
+You should see kong deployed in the control plane
+```bash
+oc get po -n kong
+```
+
+output
 
 ```bash
-k kustomize dataplane --enable-helm
+oc get po -n kong 
+```
+
+output
+
+```
+NAME                       READY   STATUS      RESTARTS   AGE
+kong-kong-f6879f58-tbzn2   1/1     Running     0          25s
+```
+Check the `Application` to see the state of `kong-cp`
+
+```bash
+oc get application -n openshift-gitops
+```
+
+output
+
+```bash
+NAME      SYNC STATUS   HEALTH STATUS
+kong-cp   Synced        Healthy
+prereqs   Synced        Healthy
+```
+
+
+## Uninstall
+
+Delete the Argo Application
+
+```bash
+oc delete application -n openshift-gitops --all 
+```
+
+```bash
+# Get CSV
+export CSV=$(oc get subs -n openshift-operators openshift-gitops-operator -oyaml | grep currentCSV | sed 's/currentCSV://g')
+
+# Delete Subscription
+oc delete subs openshift-gitops-operator -n openshift-operators 
+
+# Delete CSV
+oc delete csv $CSV -n openshift-operators
 ```
