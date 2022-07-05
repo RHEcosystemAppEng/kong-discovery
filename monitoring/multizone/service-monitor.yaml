@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kong-mesh-control-plane
+  namespace: kong-mesh-system
+  labels:
+    app.kubernetes.io/name: kong-metrics
+spec:
+  endpoints:
+  - interval: 30s
+    path: /metrics
+    port: diagnostics
+    scheme: http
+  selector:
+    matchLabels:
+      app: kong-mesh-control-plane

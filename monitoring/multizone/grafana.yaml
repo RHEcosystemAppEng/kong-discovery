@@ -1,0 +1,24 @@
+apiVersion: integreatly.org/v1alpha1
+kind: Grafana
+metadata:
+  name: kong-grafana
+  namespace: grafana
+spec:
+  config:
+    auth:
+      disable_login_form: false
+      disable_signout_menu: true
+    auth.anonymous:
+      enabled: true
+    auth.basic:
+      enabled: true
+    security:
+      admin_password: admin
+      admin_user: admin
+  ingress:
+    enabled: true
+    path: /
+    pathType: Prefix
+  dashboardLabelSelector:
+    - matchExpressions:
+        - { key: app, operator: In, values: [grafana] }
