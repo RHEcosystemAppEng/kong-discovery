@@ -1,0 +1,16 @@
+# Captures kong deployment patterns on Openshift
+- [X] kong gateway
+    - [X] Multi-zone gateway components on OCP
+    - [X] Multi-zone gateway components on hybrid mode(VM + OCP)
+    - [X] Gateway plugins
+    - [X] Monitoring
+    - [X] Logging
+    - [X] Kong Ingress Controller
+- [X] kong mesh
+    - [X] Multi-zone mesh components on OCP
+    - [X] Multi-zone mesh components on hybrid mode(VM + OCP)
+    - [X] Distributed tracing
+    - [X] Logging
+    - [X] Monitoring
+        - [X] Federate Kong mesh metrics to openshift prometheus 
+        - [X] Monitoring multi-zone mesh cluster
