@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kong
+  namespace: openshift-gitops
+spec:
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: kong
+  project: default
+  # source:
+  #   chart: kong
+  #   repoURL: https://charts.konghq.com
+  #   targetRevision: 2.9.1
+  #   helm:
+  #     releaseName: kong
+  #     valueFiles: ["values.yaml"] <- this MUST be present in the remote repo
+  source:
+    path: validated-patterns/gateway/dataplane
+    plugin:
+      name: kustomized-helm
+    repoURL: https://github.com/cmwylie19/kong-discovery.git
+    targetRevision: design-concept # branch
+  syncPolicy:
+    automated: {}

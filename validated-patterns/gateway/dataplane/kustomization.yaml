@@ -1,0 +1,25 @@
+namespace: openshift-gitops
+
+resources:
+- ../base
+
+patches:
+- target:
+    kind: Application
+    name: kong
+  patch: |-
+    - op: replace
+      path: /metadata/name
+      value: kong-dp
+- target:
+    kind: Application
+    name: kong
+  patch: |-
+    apiVersion: argoproj.io/v1alpha1
+    kind: Application
+    metadata:
+      name: kong-dp
+    spec:
+      source:
+        helm:
+          valueFiles: ["values-dp.yaml"]

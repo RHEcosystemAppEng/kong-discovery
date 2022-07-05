@@ -1,0 +1,11 @@
+apiVersion: console.openshift.io/v1
+kind: ConsoleLink
+metadata:
+  name: application-menu-kong-gateway-docs
+spec:
+  href: 'https://docs.konghq.com/gateway/latest/'
+  location: ApplicationMenu
+  text: Kong Docs - Gateway
+  applicationMenu:
+    section: Kong Docs
+    imageURL: https://docs.konghq.com/assets/images/logos/kong-logo-blue.svg
