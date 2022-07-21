@@ -11,6 +11,8 @@ The 2 openshift clusters will be named as follows:
 - kong-global: Contains the Kong Gateway CP and the Kuma Mesh Global CP
 - kong-dp1: Contains the Kong Gateway DP and the frontend (magnanimo)
 
+ As this document involves multiple contexts in different OCP clusters you might consider using [kubectx](https://github.com/ahmetb/kubectx)
+
 ## Installing the Kong Gateway CP
 
 Let's start by installing the Kong Gateway CP in the `kong-global` cluster.
@@ -67,14 +69,14 @@ oc create route passthrough kong-kong-admin-tls --port=kong-admin-tls --service=
 - update the ADMIN URI in the deployment
 
 ```bash
-oc patch deploy -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"$(oc get route -n kong kong-kong-admin -ojsonpath='{.spec.host}')\" }]}]}}}}"
+oc patch deploy -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {\"containers\":[{\"name\":\"proxy\",\"env\": [{ \"name\" : \"KONG_ADMIN_API_URI\", \"value\": \"${GW_CP_URL}\" }]}]}}}}"
 ```
 
 - save the cluster/clustertelemetry endpoints for later
 
 ```bash
-export CLUSTER_URL=$(oc get svc kong-kong-cluster -ojson | jq -r '.status.loadBalancer.ingress[].hostname')
-export CLUSTER_TELEMETRY_URL=$(oc get svc kong-kong-clustertelemetry -ojson | jq -r '.status.loadBalancer.ingress[].hostname')
+export CLUSTER_URL=$(oc get svc -n kongkong-kong-cluster -ojson | jq -r '.status.loadBalancer.ingress[].hostname')
+export CLUSTER_TELEMETRY_URL=$(oc get svc -n kong kong-kong-clustertelemetry -ojson | jq -r '.status.loadBalancer.ingress[].hostname')
 ```
 
 - check the management UI is working at:
@@ -88,6 +90,13 @@ oc get route -n kong kong-kong-manager --template='{{.spec.host}}'
 ```bash
 http `oc get route -n kong kong-kong-admin --template='{{.spec.host}}'` | jq .version
 "2.8.1.1-enterprise-edition"
+```
+
+- export the Gateway ControlPlane endpoint to use it later
+
+```bash
+export GW_CP_URL=$(oc get route -n kong kong-kong-admin --template='{{.spec.host}})
+${GW_CP_URL}
 ```
 
 ## Installing the Mesh in Openshift
@@ -216,13 +225,19 @@ oc create route passthrough kong-kong-proxy-tls --port=kong-proxy-tls --service=
 **VM installation**: Refer to [Verify clustering is working](./gateway-multizone/kong-vm.md#verify-clustering-is-working)
 
 ```bash
-http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/clustering/status
+http ${GW_CP_URL}/clustering/status
 ```
 
 - check proxy
 
 ```bash
 http `oc get route -n kong-dp kong-kong-proxy --template='{{ .spec.host }}'`/
+```
+
+Export the Gateway DataPlane endpoint to use it later:
+
+```bash
+export GW_DP_URL=$(oc get route -n kong-dp kong-kong-proxy-tls --template='{{.spec.host}}')
 ```
 
 ## Deploy the demo apps
@@ -272,14 +287,14 @@ or using the `/meshes/default/service-insights` endpoint.
 Let's create the service and the route in the Gateway Control Plane `kong-global`
 
 ```bash
-http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services name=magnanimoservice url='http://magnanimo.kuma-app.svc.cluster.local:4000'
-http `oc get route -n kong kong-kong-admin --template='{{ .spec.host }}'`/services/magnanimoservice/routes name='magnanimoroute' paths:='["/magnanimo"]'  
+http ${GW_CP_URL}/services name=magnanimoservice url='http://magnanimo.kuma-app.svc.cluster.local:4000'
+http ${GW_CP_URL}/services/magnanimoservice/routes name='magnanimoroute' paths:='["/magnanimo"]'
 ```
 
-Now using the `kong-dp1` Proxy route we should be able to query the service
+Now we should be able to query the service in the Gateway DataPlane endpoint
 
 ```bash
-$ https --verify=false `oc get route -n kong-dp kong-kong-proxy-tls --template='{{.spec.host}}'`/magnanimo/hello
+$ https --verify=false ${GW_DP_URL}/magnanimo/hello
 HTTP/1.1 200 OK
 Connection: keep-alive
 Content-Length: 22
@@ -294,7 +309,7 @@ Hello World, Magnanimo: 2022-06-17 14:25:43.599616
 ```
 
 ```bash
-$ https --verify=false `oc get route -n kong-dp kong-kong-proxy-tls --template='{{.spec.host}}'`/magnanimo/hw3
+$ https --verify=false ${GW_DP_URL}/magnanimo/hw3
 HTTP/1.1 200 OK
 Connection: keep-alive
 Content-Length: 49
@@ -351,7 +366,7 @@ EOF
 Confirm the application works again
 
 ```bash
-https --verify=false `oc get route -n kong-dp kong-kong-proxy-tls --template='{{.spec.host}}'`/magnanimo/hw3
+https --verify=false ${GW_DP_URL}/magnanimo/hw3
 HTTP/1.1 200 OK
 Connection: keep-alive
 Content-Length: 49
