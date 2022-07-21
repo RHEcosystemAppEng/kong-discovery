@@ -75,8 +75,8 @@ oc patch deploy -n kong kong-kong -p "{\"spec\": { \"template\" : { \"spec\" : {
 - save the cluster/clustertelemetry endpoints for later
 
 ```bash
-export CLUSTER_URL=$(oc get svc kong-kong-cluster -ojson | jq -r '.status.loadBalancer.ingress[].hostname')
-export CLUSTER_TELEMETRY_URL=$(oc get svc kong-kong-clustertelemetry -ojson | jq -r '.status.loadBalancer.ingress[].hostname')
+export CLUSTER_URL=$(oc get svc -n kongkong-kong-cluster -ojson | jq -r '.status.loadBalancer.ingress[].hostname')
+export CLUSTER_TELEMETRY_URL=$(oc get svc -n kong kong-kong-clustertelemetry -ojson | jq -r '.status.loadBalancer.ingress[].hostname')
 ```
 
 - check the management UI is working at:
