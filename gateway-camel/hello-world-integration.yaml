@@ -1,0 +1,31 @@
+apiVersion: camel.apache.org/v1
+kind: Integration
+metadata:
+  name: auth-hello-world
+  annotations:
+    konghq.com/plugins: keycloak-auth-plugin
+spec:
+  flows:
+  - from:
+      steps:
+      - log: Start request
+      - set-header:
+          constant: application/x-www-form-urlencoded; charset=utf-8
+          name: Content-Type
+      - set-body:
+          simple: user=${header.authenticated_user}
+      - log: Before request ${headers} - ${body}
+      - to: kamelet:http-sink?url=http://hello-world:8080/hello?method=POST
+      - remove-header:
+          name: username
+      - log: Response ${headers} - ${body}
+      uri: platform-http:/
+  traits:
+    owner:
+      configuration:
+        enabled: true
+        targetAnnotations:
+        - konghq.com/plugins
+    service:
+      configuration:
+        nodePort: false

@@ -21,20 +21,13 @@ enterprise:
   portal:
     enabled: true
   rbac:
-    admin_gui_auth_conf_secret: admin-gui-session-conf
-    enabled: true
-    session_conf_secret: kong-session-config
+    enabled: false
   smtp:
     enabled: false
 env:
   cluster_cert: /etc/secrets/kong-cluster-cert/tls.crt
   cluster_cert_key: /etc/secrets/kong-cluster-cert/tls.key
   database: postgres
-  password:
-    valueFrom:
-      secretKeyRef:
-        key: password
-        name: kong-enterprise-superuser-password
   portal_gui_protocol: http
   #role: control_plane
   pg_user: kong
@@ -47,11 +40,6 @@ ingressController:
   enabled: true
   env:
     enable_reverse_sync: true
-    kong_admin_token:
-      valueFrom:
-        secretKeyRef:
-          key: password
-          name: kong-enterprise-superuser-password
     sync_period: 1m
   image:
     repository: kong/kubernetes-ingress-controller

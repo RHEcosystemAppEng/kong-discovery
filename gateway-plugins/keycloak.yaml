@@ -42,14 +42,15 @@ spec:
     enabled: true
     clientAuthenticatorType: client-secret
     redirectUris:
-      - 'http://demo-app-kong.$OCP_DOMAIN/*'
+      - 'http://kong-kong-proxy-kong.$OCP_DOMAIN/*'
     clientId: kuma-demo-client
     name: kuma-demo-client
-    rootUrl: 'http://demo-app-kong.$OCP_DOMAIN/'
+    rootUrl: 'http://kong-kong-proxy-kong.$OCP_DOMAIN/'
     implicitFlowEnabled: false
     secret: client-secret
     publicClient: false
     standardFlowEnabled: true
+    serviceAccountsEnabled: true
     directAccessGrantsEnabled: true
     protocolMappers:
       - protocol: openid-connect
@@ -60,6 +61,16 @@ spec:
           multivalued: "true"
           jsonType.label: String
           claim.name: roles
+      - protocol: openid-connect
+        protocolMapper: oidc-usermodel-property-mapper
+        name: username
+        config:
+          userinfo.token.claim: "true"
+          user.attribute: "username"
+          id.token.claim: "true"
+          access.token.claim: "true"
+          claim.name: "preferred_username"
+          jsonType.label: "String"
   realmSelector:
     matchLabels:
       app: kong-demo
