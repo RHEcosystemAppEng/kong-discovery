@@ -34,19 +34,8 @@ kubectl create secret tls kong-cluster-cert --cert=./cluster.crt --key=./cluster
 oc new-app -n kong --template=postgresql-ephemeral --param=POSTGRESQL_USER=kong --param=POSTGRESQL_PASSWORD=kong123 --param=POSTGRESQL_DATABASE=kong
 ```
 
-```bash
-echo '{"cookie_name":"admin_session","cookie_samesite":"off","secret":"kong","cookie_secure":false,"storage":"kong"}' > admin_gui_session_conf
-echo '{"cookie_name":"portal_session","cookie_samesite":"off","secret":"kong","cookie_secure":false,"storage":"kong"}' > portal_session_conf
-oc create secret generic kong-session-config -n kong --from-file=admin_gui_session_conf --from-file=portal_session_conf
-```
-
-- Creating Kong Manager password
-
-```bash
-oc create secret generic kong-enterprise-superuser-password -n kong --from-literal=password=kong
-```
-
 - Install Kong Gateway
+
 ```bash
 helm install kong kong/kong -n kong --values gateway-values.yaml
 ```

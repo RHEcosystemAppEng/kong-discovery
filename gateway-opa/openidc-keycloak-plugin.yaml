@@ -2,21 +2,15 @@ apiVersion: configuration.konghq.com/v1
 kind: KongPlugin
 metadata:
   name: keycloak-auth-plugin
-  namespace: kuma-demo
+  namespace: kuma-app
 config: 
   auth_methods:
   - authorization_code
   - session
-  hide_credentials: true
+  - bearer
   issuer: https://keycloak-kong-keycloak.$OCP_DOMAIN/auth/realms/kong
   client_id:
   - kuma-demo-client
   client_secret:
   - client-secret
-  roles_required:
-  - customer
-  upstream_headers_claims:
-  - preferred_username
-  upstream_headers_names:
-  - authenticated_user
 plugin: openid-connect

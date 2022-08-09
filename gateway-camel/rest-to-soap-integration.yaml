@@ -1,0 +1,39 @@
+apiVersion: camel.apache.org/v1
+kind: Integration
+metadata:
+  name: rest-to-soap
+spec:
+  flows:
+  - rest:
+      get:
+      - param:
+        - name: name
+          required: true
+          type: path
+        path: /{name}
+        to: direct:to-soap
+  - from:
+      steps:
+      - to: kamelet:freemarker-template-action?template=template.ftl
+      - set-header:
+          constant: ""
+          name: SOAPAction
+      - set-header:
+          constant: text/html
+          name: Content-Type
+      - to: kamelet:http-sink?url=http://my-microcksinstall.microcks.svc:8080/soap/HelloService+Mock/0.9
+      - remove-header:
+          name: name
+      - transform:
+          xpath: //sayHello/text()
+      - transform:
+          simple: '{"greeting": "${body}"}'
+      uri: direct:to-soap
+  traits:
+    mount:
+      configuration:
+        resources:
+        - configmap:templates/soap-get-request.ftl@/etc/camel/resources/freemarker/templates/template.ftl
+    service:
+      configuration:
+        nodePort: false
